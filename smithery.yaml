@@ -15,7 +15,7 @@ runtime:
   cors: true
 
 # Entry point configuration
-entry: smithery-entry.js
+entry: ./src/index.js
 startCommand: "node"
 commandFunction: "default"
 serverType: "http"

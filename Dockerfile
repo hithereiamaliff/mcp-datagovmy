@@ -16,10 +16,5 @@ ENV PORT=8182
 # Expose the port the app runs on
 EXPOSE 8182
 
-# Create a simple startup script for Smithery compatibility
-RUN echo '#!/bin/sh
-node -e "require(\"./smithery-entry.js\")({ config: require(\"./smithery.config.cjs\") })"' > start.sh && \
-    chmod +x start.sh
-
-# Command to run the entry point
-CMD ["./start.sh"]
+# Command to run the server directly
+CMD ["node", "src/index.js"]

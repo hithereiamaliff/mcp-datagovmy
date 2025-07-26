@@ -2,6 +2,8 @@
  * Smithery MCP Server Configuration
  */
 
+const path = require('path');
+
 // Use CommonJS format
 module.exports = {
   // Server configuration
