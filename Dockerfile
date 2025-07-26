@@ -2,19 +2,15 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm ci --only=production
+# Copy package files first for better caching
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Copy application code
 COPY . .
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV PORT=8182
-
-# Expose the port the app runs on
+# Expose the port
 EXPOSE 8182
 
-# Command to run the server directly
-CMD ["node", "src/index.js"]
+# Simple command to run the server
+CMD ["node", "server.cjs"]
