@@ -14,7 +14,7 @@ runtime:
   cors: true
 
 # Entry point configuration
-entry: minimal-server.js
+entry: mcp-server.js
 
 # Tools configuration (mirrors the tools defined in smithery.config.cjs)
 tools:

@@ -1,16 +1,22 @@
+# Use the recommended Node.js Alpine image for a small and secure base.
 FROM node:18-alpine
 
+# Set the working directory inside the container.
 WORKDIR /app
 
-# Copy only the minimal files needed
+# Copy package.json and package-lock.json for dependency installation.
+# This is done first to leverage Docker's layer caching.
 COPY package.json package-lock.json ./
+
+# Install production dependencies.
 RUN npm ci --only=production
 
-# Copy minimal server implementation
-COPY minimal-server.js ./
+# Copy the new, universal server entry point.
+COPY mcp-server.js ./
 
-# Expose the port
+# Expose the port the application will run on.
 EXPOSE 8182
 
-# Simple command to run the minimal server
-CMD ["node", "-e", "require('http').createServer((req, res) => { if (req.url === '/') { res.writeHead(200, {'Content-Type': 'application/json'}); res.end(JSON.stringify({status: 'ok', message: 'Malaysia Open Data MCP Server'})); } else { const server = require('./minimal-server.js')({sessionId: 'test'}); const tools = server.connect(); res.writeHead(200, {'Content-Type': 'application/json'}); res.end(JSON.stringify({tools: Object.keys(tools)})); } }).listen(8182, () => console.log('Server running on port 8182'));"]
+# The command to start the server.
+# This directly runs the entry point with Node.
+CMD ["node", "mcp-server.js"]
