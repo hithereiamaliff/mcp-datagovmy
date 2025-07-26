@@ -1,22 +1,18 @@
-# Use the recommended Node.js Alpine image for a small and secure base.
+# Use Node.js Alpine for a small and secure base image
 FROM node:18-alpine
 
-# Set the working directory inside the container.
+# Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json for dependency installation.
-# This is done first to leverage Docker's layer caching.
+# Copy only the necessary files
 COPY package.json package-lock.json ./
+COPY index.js ./
 
-# Install production dependencies.
+# Install only production dependencies
 RUN npm ci --only=production
 
-# Copy the new, universal server entry point.
-COPY mcp-server.js ./
-
-# Expose the port the application will run on.
+# Expose the port the application runs on
 EXPOSE 8182
 
-# The command to start the server.
-# This directly runs the entry point with Node.
-CMD ["node", "mcp-server.js"]
+# Start the server
+CMD ["node", "index.js"]

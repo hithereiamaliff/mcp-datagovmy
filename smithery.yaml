@@ -3,7 +3,7 @@ displayName: Malaysia Open Data MCP
 description: MCP server for accessing Malaysia's Open Data APIs
 version: 1.0.0
 
-# Build configuration
+# Build configuration - using Dockerfile for simplicity
 build:
   dockerfile: Dockerfile
 
@@ -13,7 +13,7 @@ runtime:
   port: 8182
   cors: true
 
-# Tools configuration (mirrors the tools defined in smithery.config.cjs)
+# Tools configuration
 tools:
   list_datasets:
     description: Lists available datasets in the Data Catalogue
