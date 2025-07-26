@@ -1,10 +1,10 @@
-FROM node:18-slim
+FROM node:18-alpine
 
 WORKDIR /app
 
 # Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci --only=production
 
 # Copy application code
 COPY . .
@@ -16,5 +16,10 @@ ENV PORT=8182
 # Expose the port the app runs on
 EXPOSE 8182
 
-# Command to run the non-interactive container entry point
-CMD ["node", "container-start.js"]
+# Create a simple startup script for Smithery compatibility
+RUN echo '#!/bin/sh
+node -e "require(\"./smithery-entry.js\")({ config: require(\"./smithery.config.cjs\") })"' > start.sh && \
+    chmod +x start.sh
+
+# Command to run the entry point
+CMD ["./start.sh"]

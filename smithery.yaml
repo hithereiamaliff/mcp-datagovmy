@@ -15,7 +15,10 @@ runtime:
   cors: true
 
 # Entry point configuration
-entry: ./server.cjs
+entry: smithery-entry.js
+startCommand: "node"
+commandFunction: "default"
+serverType: "http"
 
 # Tools configuration (mirrors the tools defined in smithery.config.cjs)
 tools:
