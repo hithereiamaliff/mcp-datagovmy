@@ -166,7 +166,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   // Search datasets by query
   server.tool(
     'search_datasets_catalogue',
-    'Search datasets by keywords in title or description',
+    '⚠️ CONSIDER USING search_all INSTEAD: This only searches datasets. For comprehensive results across datasets and dashboards, use search_all tool. ⚠️',
     {
       query: z.string().describe('Search query to match against dataset metadata'),
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),

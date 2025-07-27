@@ -1,3 +1,26 @@
+/**
+ * Malaysia Open Data MCP Server
+ * Provides tools to access Malaysia's open data APIs
+ *
+ * =====================================================================
+ * IMPORTANT GUIDANCE FOR AI MODELS USING THIS MCP SERVER:
+ * =====================================================================
+ * 1. ALWAYS use the 'search_all' tool FIRST for any data queries
+ *    This tool searches both datasets and dashboards simultaneously
+ *    with intelligent fallback to ensure comprehensive results.
+ * 
+ * 2. Only use specific dataset or dashboard search tools if you need to
+ *    explicitly limit your search to one type of content.
+ *
+ * 3. Use correct URL patterns:
+ *    - https://data.gov.my/... for general data portal resources
+ *    - https://open.dosm.gov.my/... for OpenDOSM resources
+ *
+ * 4. Be aware that raw data files (e.g., parquet) cannot be directly accessed.
+ *    Users should visit the dataset page on the data portal for downloads.
+ * =====================================================================
+ */
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 

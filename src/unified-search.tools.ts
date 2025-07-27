@@ -148,7 +148,7 @@ export function registerUnifiedSearchTools(server: McpServer) {
   // Unified search across datasets and dashboards
   server.tool(
     'search_all',
-    'Search across both datasets and dashboards',
+    '⭐⭐⭐ PRIMARY SEARCH TOOL: Always use this first for any data or visualization queries. Searches across both datasets and dashboards with intelligent fallback. ⭐⭐⭐',
     {
       query: z.string().describe('Search query to match against all content'),
       limit: z.number().min(1).max(20).optional().describe('Number of results to return (1-20)'),

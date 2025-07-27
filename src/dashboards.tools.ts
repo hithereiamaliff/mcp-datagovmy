@@ -159,7 +159,7 @@ export function registerDashboardTools(server: McpServer) {
   // Search dashboards by query
   server.tool(
     'search_dashboards',
-    'Search dashboards by keywords in name or route',
+    '⚠️ CONSIDER USING search_all INSTEAD: This only searches dashboards. For comprehensive results across datasets and dashboards, use search_all tool. ⚠️',
     {
       query: z.string().describe('Search query to match against dashboard metadata'),
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
