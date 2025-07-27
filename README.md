@@ -1,17 +1,31 @@
 # Malaysia Open Data MCP
 
+[![smithery badge](https://smithery.ai/badge/@hithereiamaliff/mcp-datagovmy)](https://smithery.ai/server/@hithereiamaliff/mcp-datagovmy)
+
 MCP (Model Context Protocol) server for Malaysia's Open Data APIs, providing easy access to government datasets and collections.
 
 Do note that this is **NOT** an official MCP server by the Government of Malaysia or anyone from Malaysia's Open Data/Jabatan Digital Negara/Ministry of Digital team.
 
 ## Features
 
-- **Unified Search** across both datasets and dashboards with intelligent fallback
-- Access to Malaysia's Data Catalogue with rich metadata
-- Interactive Dashboards for data visualization
-- Department of Statistics Malaysia (DOSM) data integration
-- Weather forecast and warnings from Malaysian Meteorological Department
-- Public transport data access
+- **Enhanced Unified Search** with flexible tokenization and synonym expansion
+  - Intelligent query handling with term normalization
+  - Support for plurals and common prefixes (e.g., "e" in "epayment")
+  - Smart prioritization for different data types
+- **Parquet File Support** using pure JavaScript
+  - Parse Parquet files directly in the browser or Node.js
+  - Support for BROTLI compression
+  - Fallback to metadata estimation when parsing fails
+  - Automatic dashboard URL mapping for visualization
+- **Hybrid Data Access Architecture**
+  - Pre-generated static indexes for efficient searching
+  - Dynamic API calls for detailed metadata
+- **Comprehensive Data Sources**
+  - Malaysia's Data Catalogue with rich metadata
+  - Interactive Dashboards for data visualization
+  - Department of Statistics Malaysia (DOSM) data
+  - Weather forecast and warnings
+  - Public transport and GTFS data
 
 ## Architecture
 
@@ -37,8 +51,9 @@ When integrating this MCP server with AI models:
 
 1. **Use the unified search tool first** - Always start with `search_all` for any data queries
 2. **Follow the correct URL patterns** - Use `https://data.gov.my/...` and `https://open.dosm.gov.my/...`
-3. **Be aware of data format limitations** - Raw files like parquet cannot be directly accessed
+3. **Leverage Parquet file tools** - Use `parse_parquet_file` to access data directly or `get_parquet_info` for metadata
 4. **Use the hybrid approach** - Static indexes for listing/searching, API calls for details
+5. **Consider dashboard visualization** - For complex data, use the dashboard links provided by `find_dashboard_for_parquet`
 
 Refer to [PROMPT.md](./PROMPT.md) for comprehensive AI integration guidelines.
 
@@ -95,6 +110,12 @@ This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
 
 - `list_dosm_datasets`: Lists available datasets from DOSM
 - `get_dosm_dataset`: Gets data from a specific DOSM dataset
+
+### Parquet File Handling
+
+- `parse_parquet_file`: Parse and display data from a Parquet file URL
+- `get_parquet_info`: Get metadata and structure information about a Parquet file
+- `find_dashboard_for_parquet`: Find the corresponding dashboard URL for a Parquet file
 
 ### Weather
 
@@ -167,8 +188,8 @@ cd mcp-datagovmy
 # Install dependencies
 npm install
 
-# Start the server locally
-npm start
+# Start the development server
+npm run dev
 ```
 
 ## Smithery Deployment
@@ -185,21 +206,44 @@ The server will be built and deployed automatically, bypassing any local Windows
 
 ## Project Structure
 
-- `index.js`: Self-contained MCP server implementation
-- `Dockerfile`: Simplified Docker configuration for Smithery
+- `src/index.ts`: Main MCP server implementation and tool registration
+- `src/datacatalogue.tools.ts`: Data Catalogue API tools
+- `src/dashboards.tools.ts`: Dashboard access and search tools
+- `src/dosm.tools.ts`: Department of Statistics Malaysia tools
+- `src/unified-search.tools.ts`: Enhanced unified search with tokenization and synonym expansion
+- `src/parquet.tools.ts`: Parquet file parsing and metadata tools
+- `src/weather.tools.ts`: Weather forecast and warnings tools
+- `src/transport.tools.ts`: Transport and GTFS data tools
+- `src/flood.tools.ts`: Flood warning and monitoring tools
+- `Dockerfile`: Docker configuration for Smithery
 - `smithery.yaml`: Smithery configuration
-- `package.json`: Minimal dependencies
+- `package.json`: Project dependencies and scripts
+- `tsconfig.json`: TypeScript configuration
 
 ## Local Testing
 
 To test locally before deploying to Smithery:
 
 ```bash
-# Start the server
-node index.js
+# Start the development server
+npm run dev
+
+# Or build and run the production version
+npm run build
+npm start
 
 # In another terminal, test the hello tool
 curl -X POST http://localhost:8182/invoke/hello -H "Content-Type: application/json" -d "{}"
+```
+
+You can also use the Smithery CLI for local development:
+
+```bash
+# Run in development mode
+npx @smithery/cli dev
+
+# Build for production
+npx @smithery/cli build
 ```
 
 ## Troubleshooting
