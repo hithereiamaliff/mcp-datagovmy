@@ -156,12 +156,6 @@ const result = await tools.search_datasets({
 
 Please be aware of rate limits for the underlying APIs. Excessive requests may be throttled.
 
-## License
-
-MIT - See [LICENSE](./LICENSE) file for details.
-
-A simplified Model Context Protocol (MCP) server for accessing Malaysia's Open Data APIs, designed specifically for easy deployment to Smithery.
-
 ## Features
 
 - Standalone, self-contained implementation
@@ -258,7 +252,7 @@ If you encounter deployment issues:
 
 ## License
 
-MIT
+MIT - See [LICENSE](./LICENSE) file for details.
 
 ## Acknowledgments
 
