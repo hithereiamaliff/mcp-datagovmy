@@ -85,17 +85,104 @@ async function getDatasetById(id: string): Promise<DatasetMetadata | null> {
   }
 }
 
-// Helper function to search datasets
+// Helper function to tokenize a query into individual terms
+function tokenizeQuery(query: string): string[] {
+  // Remove special characters and split by spaces
+  return query.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(term => term.length > 0);
+}
+
+// Helper function to normalize terms by removing common prefixes and handling variations
+function normalizeTerm(term: string): string[] {
+  // Remove hyphens and normalize spacing
+  let normalized = term.replace(/-/g, '').trim();
+  
+  // Handle common prefixes/variations
+  if (normalized.startsWith('e') && normalized.length > 1) {
+    // e.g., 'epayment' -> also try 'payment'
+    return [normalized, normalized.substring(1)];
+  }
+  
+  return [normalized];
+}
+
+// A small set of common synonyms for frequently used terms
+const COMMON_SYNONYMS: Record<string, string[]> = {
+  'payment': ['payment', 'pay', 'transaction'],
+  'electronic': ['electronic', 'digital', 'online', 'cashless'],
+  'statistics': ['statistics', 'stats', 'data', 'figures', 'numbers'],
+  'dashboard': ['dashboard', 'visualization', 'chart', 'graph'],
+  'dataset': ['dataset', 'data set', 'database', 'data'],
+};
+
+// Helper function to expand search terms for better matching
+function expandSearchTerms(term: string): string[] {
+  const normalizedTerm = term.toLowerCase().trim();
+  
+  // Start with the original term
+  let expanded = [normalizedTerm];
+  
+  // Add normalized variations
+  expanded = expanded.concat(normalizeTerm(normalizedTerm));
+  
+  // Check for common synonyms
+  for (const [key, synonyms] of Object.entries(COMMON_SYNONYMS)) {
+    if (normalizedTerm === key || synonyms.includes(normalizedTerm)) {
+      expanded = expanded.concat(synonyms);
+      break;
+    }
+  }
+  
+  // Basic stemming for plurals
+  if (normalizedTerm.endsWith('s')) {
+    expanded.push(normalizedTerm.slice(0, -1)); // Remove trailing 's'
+  } else {
+    expanded.push(normalizedTerm + 's'); // Add trailing 's'
+  }
+  
+  // Remove duplicates and return
+  return [...new Set(expanded)];
+}
+
+// Helper function to search datasets with improved matching
 export function searchDatasets(query: string): DatasetMetadata[] {
   const datasets = getAllDatasets();
-  const lowerCaseQuery = query.toLowerCase();
-  return datasets.filter(d => 
-    d.title_en.toLowerCase().includes(lowerCaseQuery) ||
-    d.title_ms.toLowerCase().includes(lowerCaseQuery) ||
-    d.description_en.toLowerCase().includes(lowerCaseQuery) ||
-    d.description_ms.toLowerCase().includes(lowerCaseQuery) ||
-    d.id.toLowerCase().includes(lowerCaseQuery)
-  );
+  
+  // Tokenize the query
+  const queryTerms = tokenizeQuery(query);
+  const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
+  
+  // If we have no valid terms after tokenization, fall back to the original query
+  if (expandedTerms.length === 0) {
+    const lowerCaseQuery = query.toLowerCase();
+    return datasets.filter(d => 
+      d.title_en.toLowerCase().includes(lowerCaseQuery) ||
+      d.title_ms.toLowerCase().includes(lowerCaseQuery) ||
+      d.description_en.toLowerCase().includes(lowerCaseQuery) ||
+      d.description_ms.toLowerCase().includes(lowerCaseQuery) ||
+      d.id.toLowerCase().includes(lowerCaseQuery)
+    );
+  }
+  
+  // Search using expanded terms
+  return datasets.filter(d => {
+    const title_en = d.title_en.toLowerCase();
+    const title_ms = d.title_ms.toLowerCase();
+    const desc_en = d.description_en.toLowerCase();
+    const desc_ms = d.description_ms.toLowerCase();
+    const id = d.id.toLowerCase();
+    
+    // Check if any of the expanded terms match
+    return expandedTerms.some(term => 
+      title_en.includes(term) ||
+      title_ms.includes(term) ||
+      desc_en.includes(term) ||
+      desc_ms.includes(term) ||
+      id.includes(term)
+    );
+  });
 }
 
 // Helper function to filter datasets

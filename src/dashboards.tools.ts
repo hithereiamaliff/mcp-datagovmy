@@ -84,14 +84,94 @@ async function getDashboardByName(name: string): Promise<DashboardMetadata | nul
   }
 }
 
-// Helper function to search dashboards
+// Helper function to tokenize a query into individual terms
+function tokenizeQuery(query: string): string[] {
+  // Remove special characters and split by spaces
+  return query.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(term => term.length > 0);
+}
+
+// Helper function to normalize terms by removing common prefixes and handling variations
+function normalizeTerm(term: string): string[] {
+  // Remove hyphens and normalize spacing
+  let normalized = term.replace(/-/g, '').trim();
+  
+  // Handle common prefixes/variations
+  if (normalized.startsWith('e') && normalized.length > 1) {
+    // e.g., 'epayment' -> also try 'payment'
+    return [normalized, normalized.substring(1)];
+  }
+  
+  return [normalized];
+}
+
+// A small set of common synonyms for frequently used terms
+const COMMON_SYNONYMS: Record<string, string[]> = {
+  'payment': ['payment', 'pay', 'transaction'],
+  'electronic': ['electronic', 'digital', 'online', 'cashless'],
+  'statistics': ['statistics', 'stats', 'data', 'figures', 'numbers'],
+  'dashboard': ['dashboard', 'visualization', 'chart', 'graph'],
+  'dataset': ['dataset', 'data set', 'database', 'data'],
+};
+
+// Helper function to expand search terms for better matching
+function expandSearchTerms(term: string): string[] {
+  const normalizedTerm = term.toLowerCase().trim();
+  
+  // Start with the original term
+  let expanded = [normalizedTerm];
+  
+  // Add normalized variations
+  expanded = expanded.concat(normalizeTerm(normalizedTerm));
+  
+  // Check for common synonyms
+  for (const [key, synonyms] of Object.entries(COMMON_SYNONYMS)) {
+    if (normalizedTerm === key || synonyms.includes(normalizedTerm)) {
+      expanded = expanded.concat(synonyms);
+      break;
+    }
+  }
+  
+  // Basic stemming for plurals
+  if (normalizedTerm.endsWith('s')) {
+    expanded.push(normalizedTerm.slice(0, -1)); // Remove trailing 's'
+  } else {
+    expanded.push(normalizedTerm + 's'); // Add trailing 's'
+  }
+  
+  // Remove duplicates and return
+  return [...new Set(expanded)];
+}
+
+// Helper function to search dashboards with improved matching
 export function searchDashboards(query: string): DashboardMetadata[] {
   const dashboards = getAllDashboards();
-  const lowerCaseQuery = query.toLowerCase();
-  return dashboards.filter(d => 
-    d.dashboard_name.toLowerCase().includes(lowerCaseQuery) ||
-    (d.route && d.route.toLowerCase().includes(lowerCaseQuery))
-  );
+  
+  // Tokenize the query
+  const queryTerms = tokenizeQuery(query);
+  const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
+  
+  // If we have no valid terms after tokenization, fall back to the original query
+  if (expandedTerms.length === 0) {
+    const lowerCaseQuery = query.toLowerCase();
+    return dashboards.filter(d => 
+      d.dashboard_name.toLowerCase().includes(lowerCaseQuery) ||
+      (d.route && d.route.toLowerCase().includes(lowerCaseQuery))
+    );
+  }
+  
+  // Search using expanded terms
+  return dashboards.filter(d => {
+    const name = d.dashboard_name.toLowerCase();
+    const route = d.route ? d.route.toLowerCase() : '';
+    
+    // Check if any of the expanded terms match
+    return expandedTerms.some(term => 
+      name.includes(term) || route.includes(term)
+    );
+  });
 }
 
 export function registerDashboardTools(server: McpServer) {
