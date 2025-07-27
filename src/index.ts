@@ -17,8 +17,8 @@
  *    - https://open.dosm.gov.my/... for OpenDOSM resources
  *
  * 4. Parquet files can now be accessed and parsed using the 'parse_parquet_file'
- *    and 'get_parquet_info' tools. These tools require Python with pandas and
- *    pyarrow packages installed on the system.
+ *    and 'get_parquet_info' tools. These tools use the hyparquet JavaScript library
+ *    and are fully compatible with the Smithery deployment environment.
  * =====================================================================
  */
 

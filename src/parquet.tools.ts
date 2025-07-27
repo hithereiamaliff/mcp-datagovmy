@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+// Import hyparquet with correct function names
+import { parquetReadObjects, asyncBufferFromUrl } from 'hyparquet';
 
 // Define the structure for Parquet metadata
 interface ParquetMetadata {
@@ -136,21 +138,158 @@ function estimateDashboardUrl(parquetUrl: string): string {
   return 'https://data.gov.my/dashboard';
 }
 
+/**
+ * Parse a Parquet file from a URL using hyparquet
+ * @param url URL of the Parquet file
+ * @param maxRows Maximum number of rows to return
+ * @returns Parsed Parquet data
+ */
+async function parseParquetFromUrl(url: string, maxRows: number = 100): Promise<any> {
+  try {
+    // Create an async buffer from the URL
+    const file = await asyncBufferFromUrl({ url });
+    
+    // Parse the Parquet file using hyparquet
+    const rowEnd = maxRows > 0 ? maxRows : undefined;
+    const parquetData = await parquetReadObjects({ 
+      file,
+      rowStart: 0,
+      rowEnd
+    });
+    
+    // Get metadata to extract schema information
+    // This is a workaround since we don't have direct schema access
+    // We'll infer schema from the first row
+    const schema: Record<string, string> = {};
+    if (parquetData.length > 0) {
+      const firstRow = parquetData[0];
+      Object.keys(firstRow).forEach(key => {
+        const value = firstRow[key];
+        schema[key] = typeof value;
+      });
+    }
+    
+    // Get the total number of rows - approximation since we don't have direct access
+    const totalRows = parquetData.length;
+    
+    return {
+      schema,
+      totalRows,
+      displayedRows: parquetData.length,
+      data: parquetData
+    };
+  } catch (error) {
+    console.error('Error parsing Parquet file:', error);
+    throw error;
+  }
+}
+
 export function registerParquetTools(server: McpServer) {
-  // Get information about a parquet file from a URL
+  // Parse a Parquet file from a URL
+  server.tool(
+    'parse_parquet_file',
+    'Parse and display data from a Parquet file URL',
+    {
+      url: z.string().url().describe('URL of the Parquet file to parse'),
+      maxRows: z.number().min(1).max(1000).optional().describe('Maximum number of rows to return (1-1000)'),
+    },
+    async ({ url, maxRows = 100 }) => {
+      try {
+        // Extract the filename from the URL
+        const filename = url.split('/').pop() || 'unknown.parquet';
+        
+        // Parse the Parquet file
+        const parquetData = await parseParquetFromUrl(url, maxRows);
+        
+        // Format the data for display
+        const formattedData = {
+          filename,
+          url,
+          schema: parquetData.schema,
+          totalRows: parquetData.totalRows,
+          displayedRows: parquetData.displayedRows,
+          data: parquetData.data,
+          timestamp: new Date().toISOString()
+        };
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(formattedData, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        // If parsing fails, fall back to metadata and estimation
+        try {
+          // Get metadata about the Parquet file
+          const metadata = await getParquetMetadata(url);
+          
+          // Estimate the structure based on the filename
+          const structureInfo = estimateParquetStructure(metadata.filename);
+          
+          // Estimate the dashboard URL
+          const dashboardUrl = estimateDashboardUrl(url);
+          
+          // Format the information for display
+          const formattedInfo = {
+            filename: metadata.filename,
+            url: metadata.url,
+            fileSize: metadata.fileSize ? `${Math.round(metadata.fileSize / 1024 / 1024 * 100) / 100} MB` : 'Unknown',
+            lastModified: metadata.lastModified || 'Unknown',
+            contentType: metadata.contentType || 'application/octet-stream',
+            estimatedStructure: structureInfo,
+            viewableAt: dashboardUrl,
+            error: 'Failed to parse Parquet file',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            note: 'Falling back to estimated structure. You can view the data at the dashboard URL.',
+            timestamp: new Date().toISOString()
+          };
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(formattedInfo, null, 2),
+              },
+            ],
+          };
+        } catch (fallbackError) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  error: 'Failed to process Parquet file',
+                  message: error instanceof Error ? error.message : String(error),
+                  fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+                  url,
+                  timestamp: new Date().toISOString(),
+                  note: 'Parquet files can be viewed through their corresponding dashboards on data.gov.my',
+                }, null, 2),
+              },
+            ],
+          };
+        }
+      }
+    }
+  );
+  
+  // Get information about a Parquet file from a URL
   server.tool(
     'get_parquet_info',
-    'Get metadata and estimated structure information about a Parquet file',
+    'Get metadata and structure information about a Parquet file',
     {
-      url: z.string().url().describe('URL of the parquet file to analyze'),
+      url: z.string().url().describe('URL of the Parquet file to analyze'),
     },
     async ({ url }) => {
       try {
-        // Get metadata about the parquet file
-        const metadata = await getParquetMetadata(url);
+        // Try to parse the Parquet file to get accurate schema information
+        const parquetData = await parseParquetFromUrl(url, 0);
         
-        // Estimate the structure based on the filename
-        const structureInfo = estimateParquetStructure(metadata.filename);
+        // Get metadata about the Parquet file
+        const metadata = await getParquetMetadata(url);
         
         // Estimate the dashboard URL
         const dashboardUrl = estimateDashboardUrl(url);
@@ -162,9 +301,9 @@ export function registerParquetTools(server: McpServer) {
           fileSize: metadata.fileSize ? `${Math.round(metadata.fileSize / 1024 / 1024 * 100) / 100} MB` : 'Unknown',
           lastModified: metadata.lastModified || 'Unknown',
           contentType: metadata.contentType || 'application/octet-stream',
-          estimatedStructure: structureInfo,
+          schema: parquetData.schema,
+          totalRows: parquetData.totalRows,
           viewableAt: dashboardUrl,
-          note: 'Parquet files cannot be directly parsed in this environment. This is an estimation based on the filename and common patterns.',
           timestamp: new Date().toISOString()
         };
         
@@ -177,20 +316,55 @@ export function registerParquetTools(server: McpServer) {
           ],
         };
       } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                error: 'Failed to process parquet file',
-                message: error instanceof Error ? error.message : String(error),
-                url,
-                timestamp: new Date().toISOString(),
-                note: 'Parquet files can be viewed through their corresponding dashboards on data.gov.my',
-              }, null, 2),
-            },
-          ],
-        };
+        // Fall back to estimation if parsing fails
+        try {
+          // Get metadata about the Parquet file
+          const metadata = await getParquetMetadata(url);
+          
+          // Estimate the structure based on the filename
+          const structureInfo = estimateParquetStructure(metadata.filename);
+          
+          // Estimate the dashboard URL
+          const dashboardUrl = estimateDashboardUrl(url);
+          
+          // Format the information for display
+          const formattedInfo = {
+            filename: metadata.filename,
+            url: metadata.url,
+            fileSize: metadata.fileSize ? `${Math.round(metadata.fileSize / 1024 / 1024 * 100) / 100} MB` : 'Unknown',
+            lastModified: metadata.lastModified || 'Unknown',
+            contentType: metadata.contentType || 'application/octet-stream',
+            estimatedStructure: structureInfo,
+            viewableAt: dashboardUrl,
+            note: 'Could not parse the Parquet file directly. This is an estimation based on the filename and common patterns.',
+            timestamp: new Date().toISOString()
+          };
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(formattedInfo, null, 2),
+              },
+            ],
+          };
+        } catch (fallbackError) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  error: 'Failed to process Parquet file',
+                  message: error instanceof Error ? error.message : String(error),
+                  fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+                  url,
+                  timestamp: new Date().toISOString(),
+                  note: 'Parquet files can be viewed through their corresponding dashboards on data.gov.my',
+                }, null, 2),
+              },
+            ],
+          };
+        }
       }
     }
   );

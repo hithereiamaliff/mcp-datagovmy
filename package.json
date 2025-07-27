@@ -15,13 +15,23 @@
     "format:check": "prettier --check src/**/*.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["mcp", "smithery", "malaysia", "open-data", "data-catalogue", "dosm", "weather", "transport"],
+  "keywords": [
+    "mcp",
+    "smithery",
+    "malaysia",
+    "open-data",
+    "data-catalogue",
+    "dosm",
+    "weather",
+    "transport"
+  ],
   "author": "hithereiamaliff",
   "license": "MIT",
   "description": "Malaysia Open Data MCP Server for Smithery",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "axios": "^1.11.0",
+    "hyparquet": "^1.17.1",
     "zod": "^3.25.57"
   },
   "devDependencies": {
