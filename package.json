@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "build": "tsc",
-    "dev": "npx @smithery/cli dev",
-    "deploy": "npm run build && npx @smithery/cli deploy",
+    "dev": "npx @smithery/cli@1.2.14 dev",
+    "deploy": "npm run build && npx @smithery/cli@1.2.14 deploy",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
@@ -16,8 +16,8 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": ["mcp", "smithery", "malaysia", "open-data", "data-catalogue", "dosm", "weather", "transport"],
-  "author": "",
-  "license": "ISC",
+  "author": "hithereiamaliff",
+  "license": "MIT",
   "description": "Malaysia Open Data MCP Server for Smithery",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
