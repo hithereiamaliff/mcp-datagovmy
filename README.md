@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) server for Malaysia's Open Data APIs, providing easy access to government datasets and collections.
 
-Do note that this is NOT an official MCP server by the Government of Malaysia or anyone from Malaysia's Open Data/Jabatan Digital Negara/Ministry of Digital team.
+Do note that this is **NOT** an official MCP server by the Government of Malaysia or anyone from Malaysia's Open Data/Jabatan Digital Negara/Ministry of Digital team.
 
 ## Features
 
