@@ -3,6 +3,8 @@ import { z } from 'zod';
 import axios from 'axios';
 // Import hyparquet with correct function names
 import { parquetReadObjects, asyncBufferFromUrl } from 'hyparquet';
+// Import compressors for BROTLI support
+import { compressors } from 'hyparquet-compressors';
 
 // Define the structure for Parquet metadata
 interface ParquetMetadata {
@@ -149,12 +151,13 @@ async function parseParquetFromUrl(url: string, maxRows: number = 100): Promise<
     // Create an async buffer from the URL
     const file = await asyncBufferFromUrl({ url });
     
-    // Parse the Parquet file using hyparquet
+    // Parse the Parquet file using hyparquet with compressors for BROTLI support
     const rowEnd = maxRows > 0 ? maxRows : undefined;
     const parquetData = await parquetReadObjects({ 
       file,
       rowStart: 0,
-      rowEnd
+      rowEnd,
+      compressors // Add compressors to support BROTLI compression
     });
     
     // Get metadata to extract schema information
