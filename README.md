@@ -156,48 +156,6 @@ const result = await tools.search_datasets({
 
 Please be aware of rate limits for the underlying APIs. Excessive requests may be throttled.
 
-## Features
-
-- Standalone, self-contained implementation
-- No complex configuration files
-- Docker-ready for Smithery deployment
-- Built for reliability and simplicity
-
-## Available Tools
-
-This simplified version includes placeholder implementations for:
-
-- `hello`: Simple test tool to verify server functionality
-- `list_datasets`: List available datasets in the Data Catalogue
-- `get_dataset`: Get data from a specific dataset
-- Plus other tools defined in the smithery.yaml file
-
-## Quick Start
-
-```bash
-# Clone the repository
-git clone https://github.com/hithereiamaliff/mcp-datagovmy.git
-cd mcp-datagovmy
-
-# Install dependencies
-npm install
-
-# Start the development server
-npm run dev
-```
-
-## Smithery Deployment
-
-This MCP server is designed for direct deployment to Smithery via their web interface:
-
-1. Push your code to GitHub
-2. Visit https://smithery.ai/new
-3. Connect your GitHub repository
-4. Select the repository and branch
-5. Deploy
-
-The server will be built and deployed automatically, bypassing any local Windows path issues.
-
 ## Project Structure
 
 - `src/index.ts`: Main MCP server implementation and tool registration
