@@ -34,6 +34,7 @@ import { registerDosmTools } from './dosm.tools.js';
 import { registerDashboardTools } from './dashboards.tools.js';
 import { registerUnifiedSearchTools } from './unified-search.tools.js';
 import { registerParquetTools } from './parquet.tools.js';
+import { registerGtfsTools } from './gtfs.tools.js';
 
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
@@ -77,6 +78,9 @@ export default function createStatelessServer({
 
   // Register Parquet tools
   registerParquetTools(server);
+
+  // Register GTFS parsing tools
+  registerGtfsTools(server);
 
   // Register a simple hello tool for testing
   server.tool(

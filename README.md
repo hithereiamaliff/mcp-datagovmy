@@ -128,6 +128,13 @@ This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
 - `list_transport_agencies`: Lists available transport agencies with GTFS data
 - `get_transport_data`: Gets GTFS data for a specific transport agency
 
+### GTFS Parsing
+
+- `parse_gtfs_static`: Parses GTFS Static data (ZIP files with CSV data) for a specific transport provider
+- `parse_gtfs_realtime`: Parses GTFS Realtime data (Protocol Buffer format) for vehicle positions
+- `get_transit_routes`: Extracts route information from GTFS data
+- `get_transit_stops`: Extracts stop information from GTFS data, optionally filtered by route
+
 ### Test
 
 - `hello`: A simple test tool to verify that the MCP server is working correctly
@@ -152,6 +159,33 @@ const result = await tools.search_datasets({
 });
 ```
 
+### Parse GTFS Data
+
+```javascript
+// Parse GTFS Static data
+const staticData = await tools.parse_gtfs_static({
+  provider: "ktmb"
+});
+
+// Get real-time vehicle positions
+const realtimeData = await tools.parse_gtfs_realtime({
+  provider: "prasarana",
+  category: "rapid-rail-kl"
+});
+
+// Get transit routes
+const routes = await tools.get_transit_routes({
+  provider: "mybas-johor"
+});
+
+// Get stops for a specific route
+const stops = await tools.get_transit_stops({
+  provider: "prasarana",
+  category: "rapid-rail-kl",
+  route_id: "LRT-KJ"
+});
+```
+
 ## API Rate Limits
 
 Please be aware of rate limits for the underlying APIs. Excessive requests may be throttled.
@@ -166,6 +200,7 @@ Please be aware of rate limits for the underlying APIs. Excessive requests may b
 - `src/parquet.tools.ts`: Parquet file parsing and metadata tools
 - `src/weather.tools.ts`: Weather forecast and warnings tools
 - `src/transport.tools.ts`: Transport and GTFS data tools
+- `src/gtfs.tools.ts`: GTFS parsing and analysis tools
 - `src/flood.tools.ts`: Flood warning and monitoring tools
 - `Dockerfile`: Docker configuration for Smithery
 - `smithery.yaml`: Smithery configuration
