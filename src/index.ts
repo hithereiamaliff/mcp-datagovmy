@@ -16,8 +16,9 @@
  *    - https://data.gov.my/... for general data portal resources
  *    - https://open.dosm.gov.my/... for OpenDOSM resources
  *
- * 4. Be aware that raw data files (e.g., parquet) cannot be directly accessed.
- *    Users should visit the dataset page on the data portal for downloads.
+ * 4. Parquet files can now be accessed and parsed using the 'parse_parquet_file'
+ *    and 'get_parquet_info' tools. These tools require Python with pandas and
+ *    pyarrow packages installed on the system.
  * =====================================================================
  */
 
@@ -32,6 +33,7 @@ import { registerDataCatalogueTools } from './datacatalogue.tools.js';
 import { registerDosmTools } from './dosm.tools.js';
 import { registerDashboardTools } from './dashboards.tools.js';
 import { registerUnifiedSearchTools } from './unified-search.tools.js';
+import { registerParquetTools } from './parquet.tools.js';
 
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
@@ -72,6 +74,9 @@ export default function createStatelessServer({
 
   // Register Unified Search tools
   registerUnifiedSearchTools(server);
+
+  // Register Parquet tools
+  registerParquetTools(server);
 
   // Register a simple hello tool for testing
   server.tool(
