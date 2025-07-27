@@ -1,0 +1,161 @@
+{
+    "title_en": "SPPI by Section (1 digit)",
+    "title_ms": "IHPR mengikut Seksyen (1 digit)",
+    "title_sort": 21,
+    "description_en": "Services producer price index (SPPI) by MSIC section (1 digit).",
+    "description_ms": "Indeks harga pengeluar perkhidmatan (IHPRP) mengikut seksyen MSIC (1 digit).",
+    "exclude_openapi": false,
+    "manual_trigger": "2025-05-12 16:18:40.264619",
+    "data_as_of": "2025-Q1",
+    "last_updated": "2025-05-08 12:00",
+    "next_update": "2025-08-06 12:00",
+    "methodology_en": "The Services Producer Price Index (SPPI) measures the level of prices charged by 8 key services industries in Malaysia, relative to a base year (2010 = 100). Given that the services sector accounts for over 50% of Malaysia's GDP, the SPPI is an important policy indicator which helps gauge cost pressures before they reach consumers. The prices used in compilation of the SPPI include surcharges, but exclude discounts, rebates and taxes imposed on consumers. For a deeper understanding of the PPI compilation methodology and related concepts, please refer to the [Technical Notes](https://open.dosm.gov.my/publications/technical-notes/sppi).",
+    "methodology_ms": "Indeks Harga Pengeluar Perkhidmatan (IHPRP) mengukur tahap harga yang dikenakan oleh 8 industri perkhidmatan penting di Malaysia, berbanding dengan tahun asas (2010 = 100). Memandangkan bahawa sektor perkhidmatan menyumbang lebih daripada 50% KDNK Malaysia, IHPRP adalah indikator penting yang membantu mengukur tekanan harga sebelum ia sampai kepada pengguna. Harga yang digunakan dalam pengiraan IHPRP termasuk surcaj, tetapi tidak termasuk diskaun, rebat dan cukai yang dikenakan pada pengguna. Untuk memahami metodologi pengiraan IHPRP dengan lebih mendalam, sila rujuk kepada [Nota Teknikal](https://open.dosm.gov.my/ms-MY/publications/technical-notes/sppi).",
+    "caveat_en": "Data for the most recent 4 quarters may be revised in subsequent releases.",
+    "caveat_ms": "Data bagi 4 suku tahun terkini mungkin disemak semula dalam penerbitan berikutnya.",
+    "publication_en": "[Services Producer Price Index, 1Q 2025](https://open.dosm.gov.my/publications/sppi_2025-q1), the latest edition of the monthly producer price statistics published by DOSM. OpenDOSM also features a [dashboard on services producer prices](https://open.dosm.gov.my/dashboard/services-producer-prices) where you can explore this data in a more interactive manner.",
+    "publication_ms": "[Indeks Harga Pengeluar Perkhidmatan, ST1 2025](https://open.dosm.gov.my/ms-MY/publications/sppi_2025-q1), edisi terkini bagi statistik harga pengeluar yang diterbitkan oleh DOSM. OpenDOSM sendiri juga memaparkan [papan pemuka khas tentang harga pengeluar](https://open.dosm.gov.my/ms-MY/dashboard/services-producer-prices) yang membolehkan anda menerokai set data ini dengan lebih interaktif.",
+    "link_parquet": "https://storage.dosm.gov.my/ppi/sppi_1d.parquet",
+    "link_csv": "https://storage.dosm.gov.my/ppi/sppi_1d.csv",
+    "link_preview": "https://storage.dosm.gov.my/ppi/sppi_1d.parquet",
+    "frequency": "QUARTERLY",
+    "geography": [
+        "NATIONAL"
+    ],
+    "demography": [],
+    "dataset_begin": 2015,
+    "dataset_end": 2025,
+    "data_source": [
+        "DOSM"
+    ],
+    "data_source_granular": [
+        "BPP"
+    ],
+    "site_category": [
+        {
+            "site": "datagovmy",
+            "category_en": "Prices",
+            "category_ms": "Harga",
+            "category_sort": 70,
+            "subcategory_en": "Producer Prices",
+            "subcategory_ms": "Harga Pengeluar",
+            "subcategory_sort": 20
+        },
+        {
+            "site": "opendosm",
+            "category_en": "Prices",
+            "category_ms": "Harga",
+            "category_sort": 70,
+            "subcategory_en": "Producer Prices",
+            "subcategory_ms": "Harga Pengeluar",
+            "subcategory_sort": 20
+        }
+    ],
+    "fields": [
+        {
+            "name": "series",
+            "title_en": "Series Type",
+            "title_ms": "Jenis Siri",
+            "description_en": "[String] Series type, either absolute values ('abs'), year-on-year growth ('growth_yoy') or quarter-on-quarter growth ('growth_qoq')",
+            "description_ms": "[Rentetan] Jenis siri, sama ada nilai mutlak ('abs'), pertumbuhan tahunan ('growth_yoy') atau pertumbuhan suku tahunan ('growth_qoq')"
+        },
+        {
+            "name": "date",
+            "title_en": "Date",
+            "title_ms": "Tarikh",
+            "description_en": "[Date] The date in YYYY-MM-DD format. The earliest date in the quarter is chosen, e.g. YYYY-01-01 for the 1st quarter and YYYY-04-01 for the 2nd quarter.",
+            "description_ms": "[Tarikh] Tarikh dalam format YYYY-MM-DD. Tarikh yang dipilih adalah tarikh terawal dalam suku tahun, contohnya YYYY-01-01 bagi suku tahun pertama dan YYYY-04-01 bagi suku tahun kedua."
+        },
+        {
+            "name": "section",
+            "title_en": "Section",
+            "title_ms": "Seksyen",
+            "description_en": "[String] 1-letter code, to be matched using the 'section' column in the [MSIC Lookup](https://open.dosm.gov.my/data-catalogue/msic). The MSIC lookup table will give you the English and Malay definitions.",
+            "description_ms": "[Rentetan] Kod 1 huruf, yang perlu dipadankan dengan medan 'section' dalam [Jadual MSIC](https://open.dosm.gov.my/ms-MY/data-catalogue/msic). Padanan tersebut akan membolehkan anda mendapat keterangan dalam Bahasa Inggeris dan Bahasa Melayu."
+        },
+        {
+            "name": "index",
+            "title_en": "Index",
+            "title_ms": "Indeks",
+            "description_en": "[Float] Level of services producer prices, expressed as an index with base 2010 = 100",
+            "description_ms": "[Apung] Tahap harga pengeluar perkhidmatan, dinyatakan sebagai indeks dengan asas 2010 = 100"
+        }
+    ],
+    "dataviz": [
+        {
+            "dataviz_id": "table",
+            "title_en": "Table",
+            "title_ms": "Jadual",
+            "chart_type": "TABLE",
+            "config": {
+                "precision": 1,
+                "filter_columns": [
+                    "series",
+                    "section"
+                ],
+                "freeze_columns": []
+            }
+        },
+        {
+            "dataviz_id": "index",
+            "title_en": "Index",
+            "title_ms": "Indeks",
+            "chart_type": "TIMESERIES",
+            "config": {
+                "filter_columns": [
+                    "series",
+                    "section"
+                ],
+                "precision": 1,
+                "operation": "SUM",
+                "format": {
+                    "x": "date",
+                    "y": [
+                        "index"
+                    ]
+                }
+            }
+        }
+    ],
+    "translations_en": {
+        "series": "Series Type",
+        "date": "Date",
+        "section": "Section",
+        "overall": "Overall",
+        "index": "Index",
+        "abs": "Index (2010 = 100)",
+        "growth-yoy": "Year-on-Year Growth",
+        "growth-qoq": "Quarter-on-Quarter Growth",
+        "x": "Date",
+        "y1": "Value",
+        "h": "Transportation",
+        "i": "Accommodation and F&B",
+        "j": "Information & Communication",
+        "l": "Real Estate Activities",
+        "m": "Professional",
+        "p": "Education",
+        "q": "Health",
+        "r": "Arts, Entertainment & Recreation"
+    },
+    "translations_ms": {
+        "series": "Jenis Siri",
+        "date": "Tarikh",
+        "section": "Seksyen",
+        "overall": "Keseluruhan",
+        "index": "Indeks",
+        "abs": "Indeks (2010 = 100)",
+        "growth-yoy": "Pertumbuhan Tahunan",
+        "growth-qoq": "Pertumbuhan Suku Tahunan",
+        "x": "Tarikh",
+        "y1": "Nilai",
+        "h": "Pengangkutan",
+        "i": "Penginapan dan Makanan & Minuman",
+        "j": "Informatik & Komunikasi",
+        "l": "Aktiviti Hartanah",
+        "m": "Profesional",
+        "p": "Pendidikan",
+        "q": "Kesihatan",
+        "r": "Kesenian, Hiburan & Rekreasi"
+    },
+    "related_datasets": []
+}

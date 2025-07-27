@@ -1,4 +1,141 @@
-# Malaysia Open Data MCP - Simplified Smithery Deployment
+# Malaysia Open Data MCP
+
+MCP (Model Context Protocol) server for Malaysia's Open Data APIs, providing easy access to government datasets and collections.
+
+## Features
+
+- **Unified Search** across both datasets and dashboards with intelligent fallback
+- Access to Malaysia's Data Catalogue with rich metadata
+- Interactive Dashboards for data visualization
+- Department of Statistics Malaysia (DOSM) data integration
+- Weather forecast and warnings from Malaysian Meteorological Department
+- Public transport data access
+
+## Architecture
+
+This MCP server implements a hybrid approach for efficient data access:
+
+- **Pre-generated Static Indexes** for listing and searching datasets and dashboards
+- **Dynamic API Calls** only when specific dataset or dashboard details are requested
+
+This approach provides several benefits:
+- Faster search and listing operations
+- Reduced API calls to external services
+- Consistent data access patterns
+- Up-to-date detailed information when needed
+
+## Documentation
+
+- **[TOOLS.md](./TOOLS.md)** - Detailed information about available tools and best practices
+- **[PROMPT.md](./PROMPT.md)** - AI integration guidelines and usage patterns
+
+## AI Integration
+
+When integrating this MCP server with AI models:
+
+1. **Use the unified search tool first** - Always start with `search_all` for any data queries
+2. **Follow the correct URL patterns** - Use `https://data.gov.my/...` and `https://open.dosm.gov.my/...`
+3. **Be aware of data format limitations** - Raw files like parquet cannot be directly accessed
+4. **Use the hybrid approach** - Static indexes for listing/searching, API calls for details
+
+Refer to [PROMPT.md](./PROMPT.md) for comprehensive AI integration guidelines.
+
+## Installation
+
+```bash
+npm install
+```
+
+## Development
+
+To run the MCP server in development mode:
+
+```bash
+npx @smithery/cli dev
+```
+
+## Build
+
+To build the MCP server for deployment:
+
+```bash
+npx @smithery/cli build
+```
+
+## Deployment
+
+This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
+
+1. Make sure you have the Smithery CLI installed:
+   ```bash
+   npm install -g @smithery/cli
+   ```
+
+2. Build the project:
+   ```bash
+   npx @smithery/cli build
+   ```
+
+3. Deploy to Smithery:
+   ```bash
+   npx @smithery/cli deploy
+   ```
+
+## Available Tools
+
+### Data Catalogue
+
+- `list_datasets`: Lists available datasets in the Data Catalogue
+- `get_dataset`: Gets data from a specific dataset in the Data Catalogue
+- `search_datasets`: Searches for datasets in the Data Catalogue
+
+### Department of Statistics Malaysia (DOSM)
+
+- `list_dosm_datasets`: Lists available datasets from DOSM
+- `get_dosm_dataset`: Gets data from a specific DOSM dataset
+
+### Weather
+
+- `get_weather_forecast`: Gets weather forecast for Malaysia
+- `get_weather_warnings`: Gets current weather warnings for Malaysia
+- `get_earthquake_warnings`: Gets earthquake warnings for Malaysia
+
+### Transport
+
+- `list_transport_agencies`: Lists available transport agencies with GTFS data
+- `get_transport_data`: Gets GTFS data for a specific transport agency
+
+### Test
+
+- `hello`: A simple test tool to verify that the MCP server is working correctly
+
+## Usage Examples
+
+### Get Weather Forecast
+
+```javascript
+const result = await tools.get_weather_forecast({
+  location: "Kuala Lumpur",
+  days: 3
+});
+```
+
+### Search Datasets
+
+```javascript
+const result = await tools.search_datasets({
+  query: "population",
+  limit: 5
+});
+```
+
+## API Rate Limits
+
+Please be aware of rate limits for the underlying APIs. Excessive requests may be throttled.
+
+## License
+
+MIT - See [LICENSE](./LICENSE) file for details.
 
 A simplified Model Context Protocol (MCP) server for accessing Malaysia's Open Data APIs, designed specifically for easy deployment to Smithery.
 

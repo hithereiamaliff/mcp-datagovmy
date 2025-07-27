@@ -1,16 +1,42 @@
 {
   "name": "datagovmy-mcp",
   "version": "1.0.0",
-  "main": "index.js",
+  "module": "./src/index.ts",
+  "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "dev": "npx @smithery/cli dev",
+    "deploy": "npm run build && npx @smithery/cli deploy",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": ["mcp", "smithery", "malaysia", "open-data"],
+  "keywords": ["mcp", "smithery", "malaysia", "open-data", "data-catalogue", "dosm", "weather", "transport"],
   "author": "",
   "license": "ISC",
   "description": "Malaysia Open Data MCP Server for Smithery",
   "dependencies": {
-    "axios": "^1.11.0"
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "axios": "^1.11.0",
+    "zod": "^3.25.57"
+  },
+  "devDependencies": {
+    "@smithery/cli": "^1.2.16",
+    "@types/node": "^22.15.31",
+    "@typescript-eslint/eslint-plugin": "^8.34.0",
+    "@typescript-eslint/parser": "^8.34.0",
+    "eslint": "^9.28.0",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-plugin-prettier": "^5.4.1",
+    "prettier": "^3.5.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

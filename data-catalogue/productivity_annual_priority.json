@@ -1,0 +1,194 @@
+{
+    "title_en": "Annual Productivity for Priority Subsectors",
+    "title_ms": "Produktiviti Tahunan untuk Subsektor Penting",
+    "title_sort": 2,
+    "description_en": "Annual labour productivity for 11 priority subsectors, with metrics on value added per worker, value added per hour worked, and total hours worked.",
+    "description_ms": "Produktiviti tenaga buruh tahunan bagi 11 subsektor penting, dengan metrik pada nilai tambah per pekerja, nilai tambah per jam bekerja, dan jumlah jam bekerja.",
+    "exclude_openapi": false,
+    "manual_trigger": "",
+    "data_as_of": "2024",
+    "last_updated": "2025-02-20 12:00",
+    "next_update": "2026-02-20 12:00",
+    "methodology_en": "This dataset specifically focuses on providing productivity metrics for 11 priority subsectors identified by the Malaysia Productivity Blueprint (May 2017, revised 2023) as presenting high growth potential for the country, in line with the 11th Malaysia Plan.\n\nIn general, labour productivity is primarily measured using two metrics:\n\n- **Value added per worker**: Calculated by dividing GDP at constant prices (to strip out the effects of inflation) for a particular time period, by the number of workers in that period.\n- **Value added per hour worked**: Calculated by dividing GDP at constant prices for a particular time period, by the total hours worked in that period.\n\nIn short, labour productivity is a derived indicator which draws from national statistics on GDP and the labour force. For a deeper understanding of the compilation methodology and related concepts, please refer to the [Technical Notes](https://open.dosm.gov.my/publications/technical-notes/productivity).",
+    "methodology_ms": "Set data ini memberi tumpuan khusus kepada 11 subsektor penting yang telah dikenal pasti oleh _Malaysia Productivity Blueprint_ (Mei 2017, disemak 2023) sebagai subsektor yang berpotensi memacu pertumbuhan negara, selaras dengan Rancangan Malaysia ke-11.\n\nSecara am, produktiviti tenaga buruh diukur menggunakan dua metrik utama:\n\n- **Nilai tambah per pekerja**: Dikira dengan membahagikan KDNK pada harga malar (untuk mengecualikan kesan inflasi) bagi suatu tempoh tertentu, dengan bilangan pekerja dalam tempoh tersebut.\n- **Nilai tambah per jam bekerja**: Dikira dengan membahagikan KDNK pada harga malar untuk suatu tempoh tertentu, dengan jumlah jam bekerja dalam tempoh tersebut.\n\nTuntasnya, produktiviti tenaga buruh adalah indikator yang dihasilkan berdasarkan statistik nasional lain, khususnya KDNK dan statistik tenaga buruh.\n\nUntuk memahami metodologi pengiraan produktiviti tenaga buruh dengan lebih mendalam, sila rujuk kepada [Nota Teknikal](https://open.dosm.gov.my/ms-MY/publications/technical-notes/productivity).",
+    "caveat_en": "Although these indicators are classified as measures of *labour* productivity, the definitions provided above make it clear that they do not refer to any notion of intrinsic labour capacity. In technical terms, the measures presented here are Single Factor Productivity measures, which implicitly include the contributions of all other factors of production. Consequently, this data should not be used for inference on how 'hardworking' or 'skilled' the Malaysian labour force is - more precise data is needed for such analysis.\n\nFurthermore, note that data for the most recent 3 years may be revised in subsequent releases. This is especially to ensure consistency with revisions to GDP data, since GDP serves as the numerator in calculation of labour productivity metrics.",
+    "caveat_ms": "Walaupun indikator ini diklasifikasikan sebagai ukuran produktiviti *tenaga buruh*, definisi di atas menunjukkan bahawa ia sebenarnya tidak sama sekali merujuk kepada kapasiti ataupun potensi tenaga buruh. Dalam istilah teknikal, indikator produktiviti ini adalah ukuran Produktiviti Faktor Tunggal, yang secara tidak langsung termasuk sumbangan semua faktor pengeluaran lain. Oleh itu, data ini tidak boleh digunakan untuk membuat kesimpulan tentang 'kerajinan' atau 'tahap kepakaran' tenaga buruh Malaysia - data yang lebih tepat diperlukan untuk analisis sedemikian.\n\nData bagi 3 tahun terkini mungkin disemak semula dalam penerbitan berikutnya. Semakan ini terutamanya untuk memastikan data adalah selaras dengan semakan data KDNK, yang digunakan secara terus dalam pengiraan metrik produktiviti tenaga buruh.",
+    "publication_en": "[Labour Productivity, 1Q 2025](https://open.dosm.gov.my/publications/productivity_2025-q1), the latest edition of the quarterly labour productivity statistics published by DOSM. OpenDOSM also features a [dashboard on labour productivity](https://open.dosm.gov.my/dashboard/labour-productivity) where you can explore this data in a more interactive manner.",
+    "publication_ms": "[Produktiviti Tenaga Buruh, ST1 2025](https://open.dosm.gov.my/ms-MY/publications/productivity_2025-q1), edisi terkini bagi statistik produktiviti tenaga buruh yang diterbitkan oleh DOSM. OpenDOSM juga memaparkan [papan pemuka khas tentang produktiviti tenaga buruh](https://open.dosm.gov.my/ms-MY/dashboard/labour-productivity) yang membolehkan anda menerokai set data ini dengan lebih interaktif.",
+    "link_parquet": "https://storage.dosm.gov.my/labour/productivity_annual_p11.parquet",
+    "link_csv": "https://storage.dosm.gov.my/labour/productivity_annual_p11.csv",
+    "link_preview": "https://storage.dosm.gov.my/labour/productivity_annual_p11.parquet",
+    "frequency": "YEARLY",
+    "geography": [
+        "NATIONAL"
+    ],
+    "demography": [],
+    "dataset_begin": 2015,
+    "dataset_end": 2024,
+    "data_source": [
+        "DOSM"
+    ],
+    "data_source_granular": [
+        "MBLS"
+    ],
+    "site_category": [
+		{
+			"site": "datagovmy",
+			"category_en": "Labour Markets",
+			"category_ms": "Pasaran Buruh",
+            "category_sort": 50,
+			"subcategory_en": "Labour Productivity",
+			"subcategory_ms": "Produktiviti Tenaga Buruh",
+            "subcategory_sort": 50
+		},
+		{
+			"site": "opendosm",
+			"category_en": "Labour Markets",
+			"category_ms": "Pasaran Buruh",
+            "category_sort": 50,
+			"subcategory_en": "Labour Productivity",
+			"subcategory_ms": "Produktiviti Tenaga Buruh",
+            "subcategory_sort": 50
+		}
+    ],
+    "fields": [
+        {
+            "name": "series",
+            "title_en": "Series Type",
+            "title_ms": "Jenis Siri",
+            "description_en": "[String] Series type, either absolute values ('abs') or year-on-year growth ('growth_yoy')",
+            "description_ms": "[Rentetan] Jenis siri, sama ada nilai mutlak ('abs') atau pertumbuhan tahunan ('growth_yoy')"
+        },
+        {
+            "name": "subsector",
+            "title_en": "Priority Subsector",
+            "title_ms": "Subsektor Penting",
+            "description_en": "[String] Code for the priority subsector, to be mapped using the [Lookup Table](https://open.dosm.gov.my/data-catalogue/productivity_lookup). The lookup table will give you the English and Malay definitions.",
+            "description_ms": "[Rentetan] Kod bagi subsektor penting, yang perlu dipadankan dengan [Jadual Carian](https://open.dosm.gov.my/ms-MY/data-catalogue/productivity_lookup). Jadual carian akan memberi definisi dalam Bahasa Inggeris dan Bahasa Melayu."
+        },
+        {
+            "name": "date",
+            "title_en": "Date",
+            "title_ms": "Tarikh",
+            "description_en": "[Date] The date in YYYY-MM-DD format, with MM-DD set to 01-01 as the data is at annual frequency",
+            "description_ms": "[Tarikh] Tarikh dalam format YYYY-MM-DD, dengan MM-DD ditetapkan kepada 01-01 kerana data adalah pada frekuensi tahunan."
+        },
+        {
+            "name": "output_hour",
+            "title_en": "Output per Hour",
+            "title_ms": "Output per Jam",
+            "description_en": "[Float, RM] The ratio of GDP to hours worked",
+            "description_ms": "[Apung, RM] Nisbah pengeluaran (KDNK) kepada jam bekerja"
+        },
+        {
+            "name": "output_employment",
+            "title_en": "Output per Worker",
+            "title_ms": "Output per Pekerja",
+            "description_en": "[Float, RM] The ratio of GDP to the number of employed persons",
+            "description_ms": "[Apung, RM] Nisbah pengeluaran (KDNK) kepada bilangan orang bekerja"
+        }
+    ],
+    "dataviz": [
+        {
+            "dataviz_id": "table",
+            "title_en": "Table",
+            "title_ms": "Jadual",
+            "chart_type": "TABLE",
+            "config": {
+                "precision": 1,
+                "filter_columns": [
+                    "series",
+                    "subsector"
+                ],
+                "freeze_columns": []
+            }
+        },
+        {
+            "dataviz_id": "output_hour",
+            "title_en": "Output per Hour Worked",
+            "title_ms": "Output per Jam Bekerja",
+            "chart_type": "TIMESERIES",
+            "config": {
+                "filter_columns": [
+                    "series",
+                    "subsector"
+                ],
+                "precision": 1,
+                "operation": "SUM",
+                "format": {
+                    "x": "date",
+                    "y": [
+                        "output_hour"
+                    ]
+                }
+            }
+        },
+        {
+            "dataviz_id": "output_employment",
+            "title_en": "Output per Worker",
+            "title_ms": "Output per Pekerja",
+            "chart_type": "TIMESERIES",
+            "config": {
+                "filter_columns": [
+                    "series",
+                    "subsector"
+                ],
+                "precision": 1,
+                "operation": "SUM",
+                "format": {
+                    "x": "date",
+                    "y": [
+                        "output_employment"
+                    ]
+                }
+            }
+        }
+    ],
+    "translations_en": {
+        "date": "Date",
+        "series": "Series Type",
+        "subsector": "Priority Subsector",
+        "output_hour": "Output per Hour",
+        "output_employment": "Output per Worker",
+        "overall": "Overall",
+        "abs": "Absolute Values",
+        "growth-yoy": "Year-on-Year Growth",
+        "x": "Date",
+        "y1": "Value",
+        "special-01": "Agrofood",
+        "special-02": "Chemicals & Chemical Products",
+        "special-03": "Electrical & Electronics",
+        "special-04": "Machinery & Equipment",
+        "special-05": "Construction & Built Environment",
+        "special-06": "Retail & Food & Beverages",
+        "special-07": "Logistics",
+        "special-08": "Tourism",
+        "special-09": "Information, Communication & Technology (ICT)",
+        "special-10": "Professional Services",
+        "special-11": "Private Healthcare"
+    },
+    "translations_ms": {
+        "series": "Jenis Siri",
+        "date": "Tarikh",
+        "subsector": "Subsektor Penting",
+        "output_hour": "Output per Jam Bekerja",
+        "output_employment": "Output per Pekerja",
+        "overall": "Keseluruhan",
+        "abs": "Nilai Mutlak",
+        "growth-yoy": "Pertumbuhan Tahunan",
+        "x": "Tarikh",
+        "y1": "Nilai",
+        "special-01": "Agro-makanan",
+        "special-02": "Kimia & Produk Kimia",
+        "special-03": "Elektrik & Elektronik",
+        "special-04": "Mesin & Peralatan",
+        "special-05": "Pembinaan & Alam Bina",
+        "special-06": "Peruncitan, Makanan & Minuman",
+        "special-07": "Logistik",
+        "special-08": "Pelancongan",
+        "special-09": "Teknologi, Maklumat & Komunikasi (ICT)",
+        "special-10": "Perkhidmatan Profesional",
+        "special-11": "Penjagaan Kesihatan Swasta"
+    },
+    "related_datasets": []
+}

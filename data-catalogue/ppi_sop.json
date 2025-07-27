@@ -1,0 +1,205 @@
+{
+    "title_en": "Monthly PPI by Stage of Processing",
+    "title_ms": "IHPR Bulanan mengikut Tahap Pemprosesan",
+    "title_sort": 6,
+    "description_en": "Monthly producer price index (PPI) by stage of processing, per the SITC classification.",
+    "description_ms": "Indeks harga pengeluar (IHPR) bulanan mengikut tahap pemprosesan, mengikut klasifikasi SITC.",
+    "exclude_openapi": false,
+    "manual_trigger": "2025-07-10 11:36:19.917285",
+    "data_as_of": "2025-05",
+    "last_updated": "2025-06-26 12:00",
+    "next_update": "2025-07-28 12:00",
+    "methodology_en": "The Producer Price Index (PPI) measures the level of prices received by the producer at the first stage of commercialisation (also known as the ex-factory price), relative to a base year (2010 = 100). Ex-factory prices exclude indirect taxes and any transport charges invoiced separately by the producer, unless the transport charges are too difficult to segregate (usually because the firm utilises their own transport facilities rather than hiring transport services). For a deeper understanding of the PPI compilation methodology and related concepts, please refer to the [Technical Notes](https://open.dosm.gov.my/publications/technical-notes/ppi).",
+    "methodology_ms": "Indeks Harga Pengeluar (IHPR) mengukur tahap harga yang diterima oleh pengeluar pada peringkat pertama pengkomersilan (juga dikenali sebagai harga di kilang), berbanding dengan tahun asas (2010 = 100). Harga di kilang tidak termasuk cukai tidak langsung dan bayaran pengangkutan yang dikenakan berasingan oleh pengeluar, kecuali kos pengangkutan terlalu sukar untuk diasingkan (biasanya kerana sesuatu pertubuhan menggunakan kemudahan pengangkutan sendiri berbanding menyewa perkhidmatan pengangkutan). Untuk memahami metodologi pengiraan IHPR dengan lebih mendalam, sila rujuk kepada [Nota Teknikal](https://open.dosm.gov.my/ms-MY/publications/technical-notes/ppi).",
+    "caveat_en": "Data for the most recent 3 months may be revised in subsequent releases.",
+    "caveat_ms": "Data bagi 3 bulan terkini mungkin disemak semula dalam penerbitan berikutnya.",
+    "publication_en": "[Producer Price Index, May 2025](https://open.dosm.gov.my/publications/ppi_2025-05), the latest edition of the monthly producer price statistics published by DOSM. OpenDOSM also features a [dashboard on producer prices](https://open.dosm.gov.my/dashboard/producer-prices) where you can explore this data in a more interactive manner.",
+    "publication_ms": "[Indeks Harga Pengeluar, Mei 2025](https://open.dosm.gov.my/ms-MY/publications/ppi_2025-05), edisi terkini bagi statistik harga pengeluar yang diterbitkan oleh DOSM. OpenDOSM sendiri juga memaparkan [papan pemuka khas tentang harga pengeluar](https://open.dosm.gov.my/ms-MY/dashboard/producer-prices) yang membolehkan anda menerokai set data ini dengan lebih interaktif.",
+    "link_parquet": "https://storage.dosm.gov.my/ppi/ppi_sop.parquet",
+    "link_csv": "https://storage.dosm.gov.my/ppi/ppi_sop.csv",
+    "link_preview": "https://storage.dosm.gov.my/ppi/ppi_sop.parquet",
+    "frequency": "MONTHLY",
+    "geography": [
+        "NATIONAL"
+    ],
+    "demography": [],
+    "dataset_begin": 2010,
+    "dataset_end": 2025,
+    "data_source": [
+        "DOSM"
+    ],
+    "data_source_granular": [
+        "BPHPP"
+    ],
+    "site_category": [
+        {
+            "site": "datagovmy",
+            "category_en": "Prices",
+            "category_ms": "Harga",
+            "category_sort": 70,
+            "subcategory_en": "Producer Prices",
+            "subcategory_ms": "Harga Pengeluar",
+            "subcategory_sort": 20
+        },
+        {
+            "site": "opendosm",
+            "category_en": "Prices",
+            "category_ms": "Harga",
+            "category_sort": 70,
+            "subcategory_en": "Producer Prices",
+            "subcategory_ms": "Harga Pengeluar",
+            "subcategory_sort": 20
+        }
+    ],
+    "fields": [
+        {
+            "name": "series",
+            "title_en": "Series Type",
+            "title_ms": "Jenis Siri",
+            "description_en": "[String] Series type, either absolute values ('abs'), year-on-year growth ('growth_yoy') or month-on-month growth ('growth_mom')",
+            "description_ms": "[Rentetan] Jenis siri, sama ada nilai mutlak ('abs'), pertumbuhan tahunan ('growth_yoy') atau pertumbuhan bulanan ('growth_mom')"
+        },
+        {
+            "name": "date",
+            "title_en": "Date",
+            "title_ms": "Tarikh",
+            "description_en": "[Date] The date in YYYY-MM-DD format, with DD set to 01 as the data is at monthly frequency",
+            "description_ms": "[Tarikh] Tarikh dalam format YYYY-MM-DD, dengan DD diberi nilai 01 kerana data berfrekuensi bulanan"
+        },
+        {
+            "name": "stage",
+            "title_en": "Stage of Processing",
+            "title_ms": "Tahap Pemprosesan",
+            "description_en": "[String] Stage-of-processing code, to be matched using the 'code' column in the [Stage of Processing Lookup](https://open.dosm.gov.my/data-catalogue/sitc_sop). The lookup table will give you the English and Malay definitions.",
+            "description_ms": "[Rentetan] Kod tahap pemprosesan, yang perlu dipadankan dengan medan 'code' dalam [Jadual Tahap Pemprosesan](https://open.dosm.gov.my/ms-MY/data-catalogue/sitc_sop). Padanan tersebut akan membolehkan anda mendapat keterangan dalam Bahasa Inggeris dan Bahasa Melayu."
+        },
+        {
+            "name": "index",
+            "title_en": "Index",
+            "title_ms": "Indeks",
+            "description_en": "[Float] Level of producer prices, expressed as an index with base 2010 = 100",
+            "description_ms": "[Apung] Tahap harga pengeluar, dinyatakan sebagai indeks dengan asas 2010 = 100"
+        }
+    ],
+    "dataviz": [
+        {
+            "dataviz_id": "table",
+            "title_en": "Table",
+            "title_ms": "Jadual",
+            "chart_type": "TABLE",
+            "config": {
+                "precision": 1,
+                "filter_columns": [
+                    "series",
+                    "stage"
+                ],
+                "freeze_columns": []
+            }
+        },
+        {
+            "dataviz_id": "index",
+            "title_en": "Index",
+            "title_ms": "Indeks",
+            "chart_type": "TIMESERIES",
+            "config": {
+                "filter_columns": [
+                    "series",
+                    "stage"
+                ],
+                "precision": 1,
+                "operation": "SUM",
+                "format": {
+                    "x": "date",
+                    "y": [
+                        "index"
+                    ]
+                }
+            }
+        }
+    ],
+    "translations_en": {
+        "series": "Series Type",
+        "stage": "Stage of Processing",
+        "date": "Date",
+        "overall": "Overall",
+        "index": "Index",
+        "index-sa": "index (sa)",
+        "abs": "Absolute values",
+        "growth-yoy": "Year-on-year growth",
+        "growth-mom": "Month-on-month growth",
+        "x": "Date",
+        "y1": "Value",
+        "1": "1: Crude Materials for Futher Processing",
+        "1-1": "1.1: Foodstuffs & Feedstuffs",
+        "1-2": "1.2: Non-Food Materials",
+        "1-2-1": "1.2.1: Non-Food Materials Except Fuel",
+        "1-2-2": "1.2.2: Crude Fuel",
+        "2": "2: Intermediate Materials, Supplies & Components",
+        "2-1": "2.1: Materials & Components for Manufacturing",
+        "2-1-1": "2.1.1: Materials for Food Manufacturing",
+        "2-1-2": "2.1.2: Materials for Other Manufacturing",
+        "2-2": "2.2: Materials & Components for Construction",
+        "2-3": "2.3: Processed Fuel & Lubricants",
+        "2-4": "2.4: Containers",
+        "2-5": "2.5: Supplies",
+        "2-5-1": "2.5.1: Manufacturing Industries",
+        "2-5-2": "2.5.2: Non-Manufacturing Industries",
+        "2-5-2-1": "2.5.2.1: Feeds",
+        "2-5-2-2": "2.5.2.2: Other Supplies",
+        "3": "3: Finished Goods",
+        "3-1": "3.1: Finished Consumer Goods",
+        "3-1-1": "3.1.1: Finished Consumer Foods",
+        "3-1-1-1": "3.1.1.1: Crude",
+        "3-1-1-2": "3.1.1.2: Processed",
+        "3-1-2": "3.1.2: Finished Consumer Goods, Excluding Foods",
+        "3-1-2-1": "3.1.2.1: Durable",
+        "3-1-2-2": "3.1.2.2: Semi-Durable",
+        "3-1-2-3": "3.1.2.3: Non-Durable",
+        "3-2": "3.2: Capital Equipment",
+        "3-2-1": "3.2.1: Manufacturing Industries",
+        "3-2-2": "3.2.2: Non-Manufacturing Industries"
+    },
+    "translations_ms": {
+        "series": "Jenis Siri",
+        "stage": "Tahap Pemprosesan",
+        "date": "Tarikh",
+        "overall": "Keseluruhan",
+        "index": "Indeks",
+        "index-sa": "Indeks (tsm)",
+        "abs": "Nilai mutlak",
+        "growth-yoy": "Pertumbuhan tahunan",
+        "growth-mom": "Pertumbuhan bulanan",
+        "x": "Tarikh",
+        "y1": "Nilai",
+        "1": "1: Bahan Mentah Untuk Diproseskan Selanjutnya",
+        "1-1": "1.1: Bahan Makanan & Makanan Untuk Binatang",
+        "1-2": "1.2: Bahan Bukan Makanan",
+        "1-2-1": "1.2.1: Bahan Bukan Makanan Kecuali Bahan Api",
+        "1-2-2": "1.2.2: Bahan Api Mentah",
+        "2": "2: Bahan Perantaraan, Bekalan & Komponen",
+        "2-1": "2.1: Bahan & Komponen Untuk Pembuatan",
+        "2-1-1": "2.1.1: Bahan Untuk Pembuatan Makanan",
+        "2-1-2": "2.1.2: Bahan Untuk Pembuatan Lain",
+        "2-2": "2.2: Bahan & Komponen Untuk Pembinaan",
+        "2-3": "2.3: Bahan Api Yang Diproses & Pelincir",
+        "2-4": "2.4: Bekas",
+        "2-5": "2.5: Bekalan",
+        "2-5-1": "2.5.1: Industri Pembuatan",
+        "2-5-2": "2.5.2: Industri Bukan Pembuatan",
+        "2-5-2-1": "2.5.2.1: Makanan Binatang",
+        "2-5-2-2": "2.5.2.2: Bekalan Lain",
+        "3": "3: Barang Siap",
+        "3-1": "3.1: Barangan Pengguna Siap",
+        "3-1-1": "3.1.1: Makanan Pengguna Siap",
+        "3-1-1-1": "3.1.1.1: Mentah",
+        "3-1-1-2": "3.1.1.2: Diproses",
+        "3-1-2": "3.1.2: Barangan Pengguna Siap Kecuali Makanan",
+        "3-1-2-1": "3.1.2.1: Tahan Lama",
+        "3-1-2-2": "3.1.2.2: Semi-Tahan Lama",
+        "3-1-2-3": "3.1.2.3: Tidak Tahan Lama",
+        "3-2": "3.2: Kelengkapan Modal",
+        "3-2-1": "3.2.1: Industri Pembuatan",
+        "3-2-2": "3.2.2: Industri Bukan Pembuatan"
+    },
+    "related_datasets": []
+}

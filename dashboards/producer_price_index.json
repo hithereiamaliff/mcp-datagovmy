@@ -1,0 +1,57 @@
+{
+    "dashboard_name": "producer_price_index",
+    "data_last_updated": "2025-06-26 12:00",
+    "data_next_update": "2025-07-28 12:00",
+    "route": "/dashboard/producer-prices,/ms-MY/dashboard/producer-prices",
+    "sites": [
+        "opendosm"
+    ],
+    "manual_trigger": "2025-02-27 21:12:50.270416",
+    "required_params": [],
+    "optional_params": [],
+    "charts": {
+        "timeseries": {
+            "name": "timeseries",
+            "chart_type": "timeseries_chart",
+            "chart_source": "https://storage.dosm.gov.my/dashboards/ppi_main_timeseries.parquet",
+            "data_as_of": "2025-05",
+            "api_type": "static",
+            "api_params": [],
+            "variables": {
+                "keys": [
+                    "chart_type"
+                ],
+                "rename_cols": {
+                    "date": "x"
+                },
+                "value_columns": [
+                    "x",
+                    "overall",
+                    "agriculture",
+                    "mining",
+                    "manufacturing",
+                    "electricity",
+                    "water",
+                    "recession"
+                ]
+            }
+        },
+        "statistics": {
+            "name": "statistics",
+            "chart_type": "custom_chart",
+            "chart_source": "https://storage.dosm.gov.my/dashboards/ppi_main_timeseries_callout.parquet",
+            "data_as_of": "2025-05",
+            "api_type": "static",
+            "api_params": [],
+            "variables": {
+                "keys": [
+                    "chart_type",
+                    "chart"
+                ],
+                "value_columns": [
+                    "callout"
+                ]
+            }
+        }
+    }
+}
