@@ -1435,6 +1435,8 @@ export function registerGtfsTools(server: McpServer) {
           };
         }
         
+        // Use normalized values for provider and category
+        provider = normalized.provider;
         category = normalized.category;
         
         // Build cache key
