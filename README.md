@@ -251,9 +251,14 @@ MIT - See [LICENSE](./LICENSE) file for details.
 
 ### Environment Variables
 
-This project supports the following environment variables:
+This project supports the following configuration options:
 
-- **GOOGLE_MAPS_API_KEY**: Optional. If provided, the GTFS transit tools will use Google Maps API for geocoding location names to coordinates. If not provided, the system will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding.
+- **googleMapsApiKey**: Optional. If provided, the GTFS transit tools will use Google Maps API for geocoding location names to coordinates. If not provided, the system will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding.
+
+You can set this configuration option in two ways:
+
+1. **Through Smithery's configuration interface** when connecting to the MCP server
+2. **As an environment variable** (GOOGLE_MAPS_API_KEY) for local development
 
 #### Setting up environment variables
 
@@ -270,10 +275,13 @@ GOOGLE_MAPS_API_KEY=your_actual_api_key_here
 
 **For Smithery deployment:**
 
-Add the environment variable in the Smithery dashboard:
-1. Go to your project in the Smithery dashboard
-2. Navigate to the environment variables section
-3. Add a new variable with key `GOOGLE_MAPS_API_KEY` and your API key as the value
+When connecting to your MCP server through Smithery:
+1. Click on "Connect Malaysia Open Data MCP Server"
+2. You'll see a configuration option for `googleMapsApiKey`
+3. Enter your Google Maps API key in this field
+4. Click "Get Link" to generate your connection URL
+
+The API key will be securely passed to the server during connection.
 
 **Note:** Google Maps API provides better geocoding results for many locations in Malaysia compared to Nominatim, but requires an API key. If you don't provide a Google Maps API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations.
 

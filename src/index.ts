@@ -48,7 +48,10 @@ import { registerGtfsTools } from './gtfs.tools.js';
 type ToolRegistrationFn = (server: McpServer) => void;
 
 // Define the config schema
-export const configSchema = z.object({});
+export const configSchema = z.object({
+  // Optional Google Maps API key for geocoding
+  googleMapsApiKey: z.string().optional().describe('Google Maps API key for improved geocoding. If not provided, will use Nominatim API as fallback.'),
+});
 
 /**
  * Creates a stateless MCP server for Malaysia Open Data API
@@ -63,32 +66,30 @@ export default function createStatelessServer({
     version: '1.0.0',
   });
 
-  // Register Data Catalogue tools
-  registerDataCatalogueTools(server);
-
-  // Register DOSM tools
-  registerDosmTools(server);
-
-  // Register Weather tools
-  registerWeatherTools(server);
-
-  // Register Transport tools
-  registerTransportTools(server);
-
-  // Register Flood Warning tools
-  registerFloodTools(server);
-
-  // Register Dashboard tools
-  registerDashboardTools(server);
-
-  // Register Unified Search tools
-  registerUnifiedSearchTools(server);
-
-  // Register Parquet tools
-  registerParquetTools(server);
-
-  // Register GTFS parsing tools
-  registerGtfsTools(server);
+  // Extract config values
+  const { googleMapsApiKey } = _config;
+  
+  // Set Google Maps API key in process.env if provided in config
+  if (googleMapsApiKey) {
+    process.env.GOOGLE_MAPS_API_KEY = googleMapsApiKey;
+    console.log('Using Google Maps API key from configuration');
+  }
+  
+  // Register all tool sets
+  const toolSets: ToolRegistrationFn[] = [
+    registerDataCatalogueTools,
+    registerDosmTools,
+    registerWeatherTools,
+    registerDashboardTools,
+    registerUnifiedSearchTools,
+    registerParquetTools,
+    registerGtfsTools,
+    registerTransportTools,
+    registerFloodTools,
+  ];
+  
+  // Register all tools
+  toolSets.forEach((toolSet) => toolSet(server));
 
   // Register a simple hello tool for testing
   server.tool(
