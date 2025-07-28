@@ -26,6 +26,11 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
   - Department of Statistics Malaysia (DOSM) data
   - Weather forecast and warnings
   - Public transport and GTFS data
+- **Multi-Provider Malaysian Geocoding**
+  - Optimized for Malaysian addresses and locations
+  - Three-tier geocoding system: GrabMaps, Google Maps, and Nominatim
+  - Prioritizes local knowledge with GrabMaps for better Malaysian coverage
+  - Automatic fallback to Nominatim when no API keys are provided
 
 ## Architecture
 
@@ -54,6 +59,7 @@ When integrating this MCP server with AI models:
 3. **Leverage Parquet file tools** - Use `parse_parquet_file` to access data directly or `get_parquet_info` for metadata
 4. **Use the hybrid approach** - Static indexes for listing/searching, API calls for details
 5. **Consider dashboard visualization** - For complex data, use the dashboard links provided by `find_dashboard_for_parquet`
+6. **Leverage the multi-provider Malaysian geocoding** - For Malaysian location queries, the system automatically selects the best provider (GrabMaps, Google Maps, or Nominatim) with fallback to Nominatim when no API keys are configured
 
 Refer to [PROMPT.md](./PROMPT.md) for comprehensive AI integration guidelines.
 

@@ -10,11 +10,15 @@ yarn-debug.log
 .env.development.local
 .env.test.local
 .env.production.local
+.env.example
 
 # Build output
 dist/
 build/
 .smithery/
+
+# Test files
+test/
 
 # TypeScript
 *.tsbuildinfo

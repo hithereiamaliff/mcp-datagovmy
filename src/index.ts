@@ -54,6 +54,24 @@ export const configSchema = z.object({
   googleMapsApiKey: z.string()
     .optional()
     .describe('Google Maps API key for improved location detection. If not provided, will use OpenStreetMap Nominatim API as fallback.'),
+  
+  // Optional GrabMaps API key for Southeast Asia geocoding
+  grabMapsApiKey: z.string()
+    .optional()
+    .describe('GrabMaps API key for improved geocoding in Southeast Asia.'),
+  
+  // Optional AWS credentials for GrabMaps integration via AWS Location Service
+  awsAccessKeyId: z.string()
+    .optional()
+    .describe('AWS Access Key ID with permissions to access AWS Location Service.'),
+  
+  awsSecretAccessKey: z.string()
+    .optional()
+    .describe('AWS Secret Access Key with permissions to access AWS Location Service.'),
+  
+  awsRegion: z.string()
+    .optional()
+    .describe('AWS Region where your Place Index is created. Default: ap-southeast-5 (Singapore)'),
 });
 
 /**
@@ -70,12 +88,34 @@ export default function createStatelessServer({
   });
 
   // Extract config values
-  const { googleMapsApiKey } = _config;
+  const { googleMapsApiKey, grabMapsApiKey, awsAccessKeyId, awsSecretAccessKey, awsRegion } = _config;
   
-  // Set Google Maps API key in process.env if provided in config
+  // Set API keys in process.env if provided in config
   if (googleMapsApiKey) {
     process.env.GOOGLE_MAPS_API_KEY = googleMapsApiKey;
     console.log('Using Google Maps API key from configuration');
+  }
+  
+  // Set GrabMaps API key
+  if (grabMapsApiKey) {
+    process.env.GRABMAPS_API_KEY = grabMapsApiKey;
+    console.log('Using GrabMaps API key from configuration');
+  }
+  
+  // Set AWS credentials for GrabMaps integration via AWS Location Service
+  if (awsAccessKeyId) {
+    process.env.AWS_ACCESS_KEY_ID = awsAccessKeyId;
+    console.log('Using AWS Access Key ID from configuration');
+  }
+  
+  if (awsSecretAccessKey) {
+    process.env.AWS_SECRET_ACCESS_KEY = awsSecretAccessKey;
+    console.log('Using AWS Secret Access Key from configuration');
+  }
+  
+  if (awsRegion) {
+    process.env.AWS_REGION = awsRegion;
+    console.log(`Using AWS Region: ${awsRegion} from configuration`);
   }
   
   // Register all tool sets

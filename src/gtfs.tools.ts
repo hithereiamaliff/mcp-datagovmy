@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import { prefixToolName } from './utils/tool-naming.js';
+import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
 
 // API Base URL for Malaysia Open Data API
 const API_BASE_URL = 'https://api.data.gov.my';
@@ -155,6 +156,9 @@ function normalizeProviderAndCategory(provider: string, category?: string): { pr
   };
 }
 
+// Export geocoding functions for testing
+export { geocodeLocation, geocodeWithGrabMaps, geocodeWithNominatim, haversineDistance };
+
 // Cache for GTFS data to avoid repeated downloads and parsing
 const gtfsCache = {
   static: new Map<string, { data: any; timestamp: number }>(),
@@ -287,8 +291,29 @@ function enhanceLocationQuery(query: string): string {
   return query;
 }
 
+// Get GrabMaps API key from environment variable
+let grabMapsApiKeyLastChecked = 0;
+let cachedGrabMapsApiKey = '';
+
+function getGrabMapsApiKey(): string {
+  // Only check once per minute to avoid excessive environment variable lookups
+  const now = Date.now();
+  if (now - grabMapsApiKeyLastChecked > 60000) {
+    cachedGrabMapsApiKey = process.env.GRABMAPS_API_KEY || '';
+    grabMapsApiKeyLastChecked = now;
+    
+    if (!cachedGrabMapsApiKey) {
+      console.log('No GrabMaps API key found.');
+    } else {
+      console.log('GrabMaps API key available.');
+    }
+  }
+  
+  return cachedGrabMapsApiKey;
+}
+
 /**
- * Geocode a location name to coordinates using either Google Maps or Nominatim API
+ * Geocode a location name to coordinates using available providers with fallback
  * @param query Location name to geocode
  * @param country Optional country code to limit results (e.g., 'my' for Malaysia)
  * @returns Promise with coordinates or null if not found
@@ -298,15 +323,34 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
     // Enhance the query with better context
     const enhancedQuery = enhanceLocationQuery(query);
     
-    // Get the current Google Maps API key
-    const apiKey = getGoogleMapsApiKey();
+    // Get API keys for different providers
+    const googleMapsApiKey = getGoogleMapsApiKey();
+    const grabMapsApiKey = getGrabMapsApiKey();
     
-    // Use Google Maps API if API key is available, otherwise use Nominatim
-    if (apiKey) {
-      return await geocodeWithGoogleMaps(enhancedQuery, query, country, apiKey);
-    } else {
-      return await geocodeWithNominatim(enhancedQuery, query, country);
+    // Try GrabMaps first for Southeast Asian countries (preferred for the region)
+    const seaCountries = ['my', 'sg', 'id', 'th', 'ph', 'vn', 'mm', 'la', 'kh', 'bn', 'tl'];
+    if (grabMapsApiKey && seaCountries.includes(country.toLowerCase())) {
+      console.log('Attempting to geocode with GrabMaps (preferred for Southeast Asia)');
+      const grabMapsResult = await geocodeWithGrabMaps(enhancedQuery, query, country, grabMapsApiKey);
+      if (grabMapsResult) {
+        return grabMapsResult;
+      }
+      console.log('GrabMaps geocoding failed, falling back to other providers');
     }
+    
+    // Try Google Maps if API key is available
+    if (googleMapsApiKey) {
+      console.log('Attempting to geocode with Google Maps');
+      const googleResult = await geocodeWithGoogleMaps(enhancedQuery, query, country, googleMapsApiKey);
+      if (googleResult) {
+        return googleResult;
+      }
+      console.log('Google Maps geocoding failed, falling back to Nominatim');
+    }
+    
+    // Fall back to Nominatim (always available as open source solution)
+    console.log('Attempting to geocode with Nominatim');
+    return await geocodeWithNominatim(enhancedQuery, query, country);
   } catch (error) {
     console.error('Geocoding error:', error);
     return null;
@@ -379,6 +423,141 @@ async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: strin
   }
   
   return null;
+}
+
+/**
+ * Geocode using GrabMaps API via AWS Location Service
+ * 
+ * Note: This requires valid AWS credentials with permissions to access AWS Location Service.
+ * If the credentials are invalid or missing, the function will return null and log an error.
+ * 
+ * Prerequisites for using this function:
+ * 1. Valid AWS Access Key ID and Secret Access Key with Location Service permissions
+ * 2. A Place Index created in AWS Location Service with GrabMaps as the data provider
+ * 3. GrabMaps API key
+ * 4. Correct AWS region configuration (ap-southeast-5 for Malaysia)
+ * 
+ * @param enhancedQuery Enhanced query with additional context
+ * @param originalQuery Original query without enhancement
+ * @param country Country code (e.g., 'my' for Malaysia)
+ * @param apiKey GrabMaps API key
+ * @returns Coordinates or null if geocoding failed
+ */
+async function geocodeWithGrabMaps(enhancedQuery: string, originalQuery: string, country: string, apiKey: string): Promise<{ lat: number; lon: number } | null> {
+  console.log(`Attempting to geocode with GrabMaps via AWS Location Service: "${enhancedQuery}"`);
+  
+  try {
+    // Check for required AWS credentials
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+    const awsRegion = process.env.AWS_REGION || 'ap-southeast-5';
+    const grabMapsApiKey = process.env.GRABMAPS_API_KEY || apiKey;
+    
+    if (!accessKeyId) {
+      console.error('AWS Access Key ID not found in environment variables');
+      return null;
+    }
+    
+    if (!secretAccessKey) {
+      console.error('AWS Secret Access Key not found in environment variables');
+      return null;
+    }
+    
+    if (!grabMapsApiKey) {
+      console.error('GrabMaps API key not found in environment variables');
+      return null;
+    }
+    
+    if (!awsRegion) {
+      console.error('AWS Region not found in environment variables, using default ap-southeast-5');
+      // We don't return null here as we have a default value
+    }
+    
+    // Create a new AWS Location Service client
+    const client = new LocationClient({
+      region: awsRegion, // Use region from env vars or default to Singapore
+      credentials: {
+        accessKeyId,
+        secretAccessKey
+      }
+    });
+    
+    console.log(`Using AWS region: ${awsRegion}`);
+    
+    console.log('AWS Location Service client created. Attempting to geocode...');
+
+    // Convert 2-letter country code to 3-letter code for AWS Location Service
+    // AWS Location Service requires 3-letter ISO country codes
+    const countryCode2 = country.toLowerCase();
+    let countryCode3 = 'MYS'; // Default to Malaysia
+    
+    // Map of 2-letter to 3-letter country codes for Southeast Asia
+    const countryCodes: Record<string, string> = {
+      'my': 'MYS', // Malaysia
+      'sg': 'SGP', // Singapore
+      'id': 'IDN', // Indonesia
+      'th': 'THA', // Thailand
+      'ph': 'PHL', // Philippines
+      'vn': 'VNM', // Vietnam
+      'mm': 'MMR', // Myanmar
+      'la': 'LAO', // Laos
+      'kh': 'KHM', // Cambodia
+      'bn': 'BRN', // Brunei
+      'tl': 'TLS'  // Timor-Leste
+    };
+    
+    if (countryCode2 in countryCodes) {
+      countryCode3 = countryCodes[countryCode2 as keyof typeof countryCodes];
+    }
+    
+    console.log(`Using 3-letter country code: ${countryCode3}`);
+    
+    // Create the search command
+    const command = new SearchPlaceIndexForTextCommand({
+      IndexName: 'explore.place.Grab', // The name of your Place Index with GrabMaps data provider
+      Text: enhancedQuery,
+      BiasPosition: [101.6942371, 3.1516964], // Bias towards KL, Malaysia
+      FilterCountries: [countryCode3], // Filter by country
+      MaxResults: 1
+    });
+    
+    // Send the command
+    const response = await client.send(command);
+    
+    // Process the response
+    if (response.Results && response.Results.length > 0 && response.Results[0].Place?.Geometry?.Point) {
+      const point = response.Results[0].Place.Geometry.Point;
+      const result = {
+        lat: point[1], // AWS returns [longitude, latitude]
+        lon: point[0]
+      };
+      
+      console.log(`\u2705 GrabMaps geocoding successful: ${JSON.stringify(result)}`);
+      console.log(`Location: ${response.Results[0].Place.Label}`);
+      
+      return result;
+    }
+    
+    console.log('No results found with GrabMaps via AWS Location Service');
+    return null;
+  } catch (error) {
+    console.error('Error geocoding with GrabMaps via AWS Location Service:', error);
+    
+    // Check for specific AWS errors
+    if (error && typeof error === 'object' && 'name' in error) {
+      const awsError = error as { name: string };
+      
+      if (awsError.name === 'UnrecognizedClientException') {
+        console.error('AWS authentication failed. Please check your AWS credentials.');
+      } else if (awsError.name === 'ValidationException') {
+        console.error('AWS Location Service validation error. Please check your request parameters.');
+      } else if (awsError.name === 'ResourceNotFoundException') {
+        console.error('Place Index not found. Please check if "explore.place.Grab" exists in your AWS account.');
+      }
+    }
+    
+    return null;
+  }
 }
 
 /**
@@ -465,7 +644,7 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   // Earth's radius in kilometers
   const R = 6371;
   
-  // Distance in kilometers
+  // Return distance in kilometers
   return R * c;
 }
 
@@ -772,15 +951,15 @@ export function registerGtfsTools(server: McpServer) {
       }
     }
   );
-  
+
   // Get transit routes
   server.tool(
     prefixToolName('get_transit_routes'),
-    'Get transit routes from GTFS data. IMPORTANT: For transit route queries like "Show me routes from Rapid Penang", use this tool directly with the provider name. The tool supports common names like "rapid penang", "rapid kuantan", "ktmb", or "mybas johor" which will be automatically mapped to the correct provider and category. No need to use list_transport_agencies first.',
+    'Get transit routes from GTFS data. IMPORTANT: For transit route queries like "Show me bus routes for Rapid Penang", use this tool directly with the provider name.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
-      route_id: z.string().optional().describe('Specific route ID to retrieve (optional)'),
+      route_id: z.string().optional().describe('Specific route ID to filter by'),
     },
     async ({ provider, category, route_id }) => {
       try {

@@ -88,6 +88,53 @@ Gets chart information for a specific dashboard.
 
 The GTFS tools support intelligent provider and category normalization, allowing users to use common names instead of exact API parameters. For example, you can use "rapid penang" instead of specifying "prasarana" as the provider and "rapid-bus-penang" as the category.
 
+### Geocoding Providers
+
+The GTFS tools use geocoding to convert location names to coordinates. The following providers are supported:
+
+1. **GrabMaps via AWS Location Service** - Preferred for Southeast Asia, requires AWS credentials and GrabMaps API key
+2. **Google Maps** - Requires API key in `GOOGLE_MAPS_API_KEY` environment variable
+3. **Nominatim (OpenStreetMap)** - Default fallback provider, no API key required
+
+#### Provider Configuration
+
+##### GrabMaps via AWS Location Service
+
+To use GrabMaps for geocoding (recommended for Southeast Asia), you need:
+
+1. AWS credentials with permissions to access AWS Location Service
+2. A Place Index created in AWS Location Service with GrabMaps as the data provider
+3. GrabMaps API key
+
+Set the following environment variables:
+
+```
+GRABMAPS_API_KEY=your_grabmaps_api_key
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+AWS_REGION=ap-southeast-5  # Malaysia region, or your preferred region
+```
+
+The Place Index name is expected to be `explore.place.Grab`. If you use a different name, you'll need to modify the code in `src/gtfs.tools.ts`.
+
+##### Google Maps
+
+To use Google Maps for geocoding, set the `GOOGLE_MAPS_API_KEY` environment variable.
+
+##### Nominatim (OpenStreetMap)
+
+Nominatim is always available as a fallback and requires no configuration.
+
+#### Geocoding Provider Priority
+
+The system will attempt to use providers in this order:
+
+1. GrabMaps (if configured and the query is for a Southeast Asian country)
+2. Google Maps (if configured)
+3. Nominatim (always available as fallback)
+
+This ensures the best geocoding results while maintaining reliability.
+
 #### Supported Providers and Categories
 
 **Direct Providers:**
