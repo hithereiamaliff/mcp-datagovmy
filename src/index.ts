@@ -61,6 +61,10 @@ export const configSchema = z.object({
     .describe('GrabMaps API key for improved geocoding in Southeast Asia.'),
   
   // Optional AWS credentials for GrabMaps integration via AWS Location Service
+  awsRegion: z.string()
+    .optional()
+    .describe('AWS Region where your Place Index is created. Default: ap-southeast-5 (Malaysia)'),
+  
   awsAccessKeyId: z.string()
     .optional()
     .describe('AWS Access Key ID with permissions to access AWS Location Service.'),
@@ -68,10 +72,6 @@ export const configSchema = z.object({
   awsSecretAccessKey: z.string()
     .optional()
     .describe('AWS Secret Access Key with permissions to access AWS Location Service.'),
-  
-  awsRegion: z.string()
-    .optional()
-    .describe('AWS Region where your Place Index is created. Default: ap-southeast-5 (Singapore)'),
 });
 
 /**
