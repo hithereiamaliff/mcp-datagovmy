@@ -15,6 +15,15 @@ const GTFS_STATIC_ENDPOINT = '/gtfs-static';
 const GTFS_REALTIME_ENDPOINT = '/gtfs-realtime/vehicle-position';
 const GTFS_TRIP_UPDATES_ENDPOINT = '/gtfs-realtime/trip-update';
 
+// Real-time data availability note
+const REALTIME_DATA_NOTE = "Real-time data access through this MCP is limited. For up-to-date train and bus schedules, bus locations, and arrivals in real-time, please use these apps: Google Maps (Penang, Kuala Lumpur, Selangor, Putrajaya, Kuantan, Johor Bahru), MyRapid PULSE (Penang, Kuala Lumpur, Selangor, Putrajaya, Kuantan), Moovit (Penang, Kuala Lumpur, Selangor, Putrajaya, Kuantan, Johor Bahru), or Lugo (Johor Bahru).";
+
+// Error note for 404 errors
+const ERROR_404_NOTE = "If you're getting a 404 error, please check that the provider and category are correct. For Prasarana, a valid category is required.";
+
+// Combined note for error responses
+const COMBINED_ERROR_NOTE = `${ERROR_404_NOTE} ${REALTIME_DATA_NOTE}`;
+
 // Geocoding APIs
 const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
@@ -1782,7 +1791,7 @@ export function registerGtfsTools(server: McpServer) {
                   limit,
                   arrivals_limit: include_arrivals ? arrivals_limit : undefined,
                 },
-                note: stopsWithArrivals.some((s: any) => s.has_realtime_data) ? undefined : "No real-time arrival data available for these stops.",
+                note: stopsWithArrivals.some((s: any) => s.has_realtime_data) ? undefined : `No real-time arrival data available for these stops. ${REALTIME_DATA_NOTE}`,
               }, null, 2),
             },
           ],
@@ -1961,6 +1970,7 @@ export function registerGtfsTools(server: McpServer) {
                 count: formattedStops.length,
                 user_location: { latitude, longitude },
                 provider_info: { provider, category },
+                note: REALTIME_DATA_NOTE,
               }, null, 2),
             },
           ],
@@ -1988,7 +1998,7 @@ export function registerGtfsTools(server: McpServer) {
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
-                note: "If you're getting a 404 error, please check that the provider and category are correct. For Prasarana, a valid category is required."
+                note: COMBINED_ERROR_NOTE,
               }, null, 2),
             },
           ],
