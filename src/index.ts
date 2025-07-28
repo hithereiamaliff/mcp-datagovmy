@@ -2,6 +2,14 @@
  * Malaysia Open Data MCP Server
  * Provides tools to access Malaysia's open data APIs
  *
+ * Load environment variables from .env file
+ */
+import dotenv from 'dotenv';
+
+// Initialize dotenv to load environment variables from .env file
+dotenv.config();
+
+/**
  * =====================================================================
  * IMPORTANT GUIDANCE FOR AI MODELS USING THIS MCP SERVER:
  * =====================================================================

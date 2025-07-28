@@ -247,9 +247,40 @@ If you encounter deployment issues:
 
 MIT - See [LICENSE](./LICENSE) file for details.
 
+## Configuration
+
+### Environment Variables
+
+This project supports the following environment variables:
+
+- **GOOGLE_MAPS_API_KEY**: Optional. If provided, the GTFS transit tools will use Google Maps API for geocoding location names to coordinates. If not provided, the system will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding.
+
+#### Setting up environment variables
+
+**For local development:**
+
+The project uses `dotenv` to load environment variables from a `.env` file during development.
+
+1. Create a `.env` file in the root directory with the following content:
+```
+GOOGLE_MAPS_API_KEY=your_actual_api_key_here
+```
+
+2. The variables will be automatically loaded when you run the server locally using `npm run dev`
+
+**For Smithery deployment:**
+
+Add the environment variable in the Smithery dashboard:
+1. Go to your project in the Smithery dashboard
+2. Navigate to the environment variables section
+3. Add a new variable with key `GOOGLE_MAPS_API_KEY` and your API key as the value
+
+**Note:** Google Maps API provides better geocoding results for many locations in Malaysia compared to Nominatim, but requires an API key. If you don't provide a Google Maps API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations.
+
 ## Acknowledgments
 
 - [Malaysia Open Data Portal](https://data.gov.my/)
 - [Department of Statistics Malaysia](https://open.dosm.gov.my/)
 - [Malaysian Meteorological Department](https://www.met.gov.my/)
+- [Google Maps Platform](https://developers.google.com/maps) for geocoding services
 - [Smithery](https://smithery.ai/) for the MCP framework

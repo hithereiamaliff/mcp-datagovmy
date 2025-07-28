@@ -14,8 +14,21 @@ const GTFS_STATIC_ENDPOINT = '/gtfs-static';
 const GTFS_REALTIME_ENDPOINT = '/gtfs-realtime/vehicle-position';
 const GTFS_TRIP_UPDATES_ENDPOINT = '/gtfs-realtime/trip-update';
 
-// Nominatim geocoding API (OpenStreetMap)
+// Geocoding APIs
+const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
+
+// Google Maps API Key from environment variable
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+
+// Determine which geocoding service to use
+const USE_GOOGLE_MAPS = !!GOOGLE_MAPS_API_KEY;
+
+if (!USE_GOOGLE_MAPS) {
+  console.log('No Google Maps API key found. Using Nominatim API for geocoding as fallback.');
+} else {
+  console.log('Using Google Maps API for geocoding.');
+}
 
 // Valid providers and categories
 const VALID_PROVIDERS = ['mybas-johor', 'ktmb', 'prasarana'];
@@ -234,7 +247,7 @@ function enhanceLocationQuery(query: string): string {
 }
 
 /**
- * Geocode a location name to coordinates using Nominatim API
+ * Geocode a location name to coordinates using either Google Maps or Nominatim API
  * @param query Location name to geocode
  * @param country Optional country code to limit results (e.g., 'my' for Malaysia)
  * @returns Promise with coordinates or null if not found
@@ -244,60 +257,143 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
     // Enhance the query with better context
     const enhancedQuery = enhanceLocationQuery(query);
     
-    // Build URL with parameters
-    const params = new URLSearchParams({
-      q: enhancedQuery,
+    // Use Google Maps API if API key is available, otherwise use Nominatim
+    if (USE_GOOGLE_MAPS) {
+      return await geocodeWithGoogleMaps(enhancedQuery, query, country);
+    } else {
+      return await geocodeWithNominatim(enhancedQuery, query, country);
+    }
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return null;
+  }
+}
+
+/**
+ * Geocode using Google Maps API
+ */
+async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: string, country: string): Promise<{ lat: number; lon: number } | null> {
+  // Build URL with parameters for Google Maps API
+  const params = new URLSearchParams({
+    address: enhancedQuery,
+    components: `country:${country}`,
+    key: GOOGLE_MAPS_API_KEY
+  });
+  
+  // Make request to Google Maps Geocoding API
+  console.log(`Geocoding with Google Maps API: "${enhancedQuery}"`);
+  const response = await axios.get(`${GOOGLE_MAPS_GEOCODING_API}?${params.toString()}`);
+  
+  // Check if we got any results
+  if (response.data && 
+      response.data.status === 'OK' && 
+      response.data.results && 
+      response.data.results.length > 0) {
+    
+    const result = response.data.results[0];
+    const location = result.geometry.location;
+    
+    console.log(`Google Maps found location: ${result.formatted_address}`);
+    
+    return {
+      lat: location.lat,
+      lon: location.lng
+    };
+  } else {
+    console.log(`Google Maps API returned status: ${response.data.status}`);
+  }
+  
+  // If enhanced query failed and it was different from original, try the original
+  if (enhancedQuery !== originalQuery) {
+    console.log(`Enhanced query failed, trying original query: ${originalQuery}`);
+    
+    const originalParams = new URLSearchParams({
+      address: originalQuery,
+      components: `country:${country}`,
+      key: GOOGLE_MAPS_API_KEY
+    });
+    
+    const originalResponse = await axios.get(`${GOOGLE_MAPS_GEOCODING_API}?${originalParams.toString()}`);
+    
+    if (originalResponse.data && 
+        originalResponse.data.status === 'OK' && 
+        originalResponse.data.results && 
+        originalResponse.data.results.length > 0) {
+      
+      const result = originalResponse.data.results[0];
+      const location = result.geometry.location;
+      
+      console.log(`Google Maps found location with original query: ${result.formatted_address}`);
+      
+      return {
+        lat: location.lat,
+        lon: location.lng
+      };
+    } else {
+      console.log(`Google Maps API returned status for original query: ${originalResponse.data.status}`);
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Geocode using Nominatim API (OpenStreetMap)
+ */
+async function geocodeWithNominatim(enhancedQuery: string, originalQuery: string, country: string): Promise<{ lat: number; lon: number } | null> {
+  // Build URL with parameters for Nominatim
+  const params = new URLSearchParams({
+    q: enhancedQuery,
+    format: 'json',
+    limit: '1',
+    countrycodes: country,
+  });
+  
+  // Make request to Nominatim API
+  console.log(`Geocoding with Nominatim API: "${enhancedQuery}"`);
+  const response = await axios.get(`${NOMINATIM_API}?${params.toString()}`, {
+    headers: {
+      'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
+    },
+  });
+  
+  // Check if we got any results
+  if (response.data && response.data.length > 0) {
+    const result = response.data[0];
+    console.log(`Nominatim found location: ${result.display_name}`);
+    return {
+      lat: parseFloat(result.lat),
+      lon: parseFloat(result.lon),
+    };
+  }
+  
+  // If enhanced query failed and it was different from original, try the original
+  if (enhancedQuery !== originalQuery) {
+    console.log(`Enhanced query failed, trying original query with Nominatim: ${originalQuery}`);
+    const originalParams = new URLSearchParams({
+      q: originalQuery,
       format: 'json',
       limit: '1',
       countrycodes: country,
     });
     
-    // Make request to Nominatim API
-    const response = await axios.get(`${NOMINATIM_API}?${params.toString()}`, {
+    const originalResponse = await axios.get(`${NOMINATIM_API}?${originalParams.toString()}`, {
       headers: {
         'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
       },
     });
     
-    // Check if we got any results
-    if (response.data && response.data.length > 0) {
-      const result = response.data[0];
+    if (originalResponse.data && originalResponse.data.length > 0) {
+      const result = originalResponse.data[0];
+      console.log(`Nominatim found location with original query: ${result.display_name}`);
       return {
         lat: parseFloat(result.lat),
         lon: parseFloat(result.lon),
       };
     }
-    
-    // If enhanced query failed and it was different from original, try the original
-    if (enhancedQuery !== query) {
-      console.log(`Enhanced query failed, trying original query: ${query}`);
-      const originalParams = new URLSearchParams({
-        q: query,
-        format: 'json',
-        limit: '1',
-        countrycodes: country,
-      });
-      
-      const originalResponse = await axios.get(`${NOMINATIM_API}?${originalParams.toString()}`, {
-        headers: {
-          'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
-        },
-      });
-      
-      if (originalResponse.data && originalResponse.data.length > 0) {
-        const result = originalResponse.data[0];
-        return {
-          lat: parseFloat(result.lat),
-          lon: parseFloat(result.lon),
-        };
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    return null;
   }
+  
+  return null;
 }
 
 /**
