@@ -27,10 +27,6 @@ dotenv.config();
  * 4. Parquet files can now be accessed and parsed using the 'parse_parquet_file'
  *    and 'get_parquet_info' tools. These tools use the hyparquet JavaScript library
  *    and are fully compatible with the Smithery deployment environment.
- * 
- * 5. Geocoding is available through multiple providers (Google Maps, GrabMaps, 
- *    and Nominatim). GrabMaps is optimized for Southeast Asian locations and 
- *    will be preferred when available for Malaysian addresses.
  * =====================================================================
  */
 
@@ -59,24 +55,23 @@ export const configSchema = z.object({
     .optional()
     .describe('Google Maps API key for improved location detection. If not provided, will use OpenStreetMap Nominatim API as fallback.'),
   
-  // GrabMaps API key
+  // Optional GrabMaps API key for Southeast Asia geocoding
   grabMapsApiKey: z.string()
     .optional()
-    .describe('GrabMaps API key for optimized location detection in Southeast Asia'),
+    .describe('GrabMaps API key for improved geocoding in Southeast Asia.'),
   
-  // AWS credentials for GrabMaps integration via AWS Location Service
+  // Optional AWS credentials for GrabMaps integration via AWS Location Service
   awsAccessKeyId: z.string()
     .optional()
-    .describe('AWS Access Key ID for GrabMaps integration via AWS Location Service'),
+    .describe('AWS Access Key ID with permissions to access AWS Location Service.'),
   
   awsSecretAccessKey: z.string()
     .optional()
-    .describe('AWS Secret Access Key for GrabMaps integration via AWS Location Service'),
+    .describe('AWS Secret Access Key with permissions to access AWS Location Service.'),
   
   awsRegion: z.string()
     .optional()
-    .default('ap-southeast-5')
-    .describe('AWS Region for GrabMaps integration via AWS Location Service (default: ap-southeast-5)'),
+    .describe('AWS Region where your Place Index is created. Default: ap-southeast-5 (Singapore)'),
 });
 
 /**
