@@ -70,6 +70,16 @@ const PROVIDER_MAPPINGS: Record<string, { provider: string; category?: string }>
   'rapid rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
   'rapid rail kl': { provider: 'prasarana', category: 'rapid-rail-kl' },
   'rapid kl rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'rapid-rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'rapid-rail-kl': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'mrt': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'lrt': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'monorail': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'monorel': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'kl mrt': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'kl lrt': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'kl monorail': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'kl monorel': { provider: 'prasarana', category: 'rapid-rail-kl' },
   'rapid kl bus': { provider: 'prasarana', category: 'rapid-bus-kl' },
   'rapid bus kl': { provider: 'prasarana', category: 'rapid-bus-kl' },
   'rapid kl': { provider: 'prasarana', category: 'rapid-rail-kl' }, // Default to rail when just 'rapid kl' is specified
@@ -92,6 +102,7 @@ const PROVIDER_MAPPINGS: Record<string, { provider: string; category?: string }>
 function normalizeProviderAndCategory(provider: string, category?: string): { provider: string; category?: string; error?: string } {
   // Convert to lowercase for case-insensitive matching
   const normalizedProvider = provider.toLowerCase();
+  let normalizedCategory = category;
   
   // Check if this is a known provider/service in our mappings
   if (PROVIDER_MAPPINGS[normalizedProvider]) {
@@ -99,7 +110,7 @@ function normalizeProviderAndCategory(provider: string, category?: string): { pr
   }
   
   // If not in mappings, check if it's a valid provider
-  if (!VALID_PROVIDERS.includes(provider)) {
+  if (!VALID_PROVIDERS.includes(normalizedProvider)) {
     return {
       provider,
       category,
@@ -108,17 +119,20 @@ function normalizeProviderAndCategory(provider: string, category?: string): { pr
   }
   
   // For prasarana, validate the category
-  if (provider === 'prasarana') {
+  if (normalizedProvider === 'prasarana') {
     if (!category) {
       return {
-        provider,
+        provider: normalizedProvider,
         error: 'Category parameter is required for prasarana provider'
       };
     }
     
-    if (!PRASARANA_CATEGORIES.includes(category)) {
+    // Normalize category to lowercase for case-insensitive matching
+    normalizedCategory = category.toLowerCase();
+    
+    if (!PRASARANA_CATEGORIES.includes(normalizedCategory)) {
       return {
-        provider,
+        provider: normalizedProvider,
         category,
         error: `Invalid category for prasarana: ${category}. Valid categories are: ${PRASARANA_CATEGORIES.join(', ')}`
       };
@@ -126,7 +140,10 @@ function normalizeProviderAndCategory(provider: string, category?: string): { pr
   }
   
   // Return normalized values
-  return { provider, category };
+  return { 
+    provider: normalizedProvider, 
+    category: normalizedCategory 
+  };
 }
 
 // Cache for GTFS data to avoid repeated downloads and parsing
@@ -485,11 +502,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Check cache if not forcing refresh
         if (!force_refresh && gtfsCache.static.has(cacheKey)) {
@@ -564,8 +581,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -615,11 +632,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Check cache if not forcing refresh
         if (!force_refresh && gtfsCache.realtime.has(cacheKey)) {
@@ -645,11 +662,13 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Build URL
-        let url = `${API_BASE_URL}${GTFS_REALTIME_ENDPOINT}/${provider}`;
+        let url = `${API_BASE_URL}${GTFS_REALTIME_ENDPOINT}/${provider}/`;
         
         if (category) {
           url += `?category=${category}`;
         }
+        
+        url += '/';
         
         // Download Protocol Buffer data
         const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -731,8 +750,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_REALTIME_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -782,11 +801,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Check if we have cached GTFS data
         let gtfsData;
@@ -802,11 +821,13 @@ export function registerGtfsTools(server: McpServer) {
         // If no cached data, fetch and parse GTFS data
         if (!gtfsData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${normalizedProvider}/`;
           
-          if (category) {
-            url += `?category=${category}`;
+          if (normalizedCategory) {
+            url += `?category=${normalizedCategory}`;
           }
+          
+          // Trailing slash already added
           
           // Download ZIP file
           const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -871,8 +892,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -923,11 +944,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Check if we have cached GTFS data
         let gtfsData;
@@ -943,11 +964,13 @@ export function registerGtfsTools(server: McpServer) {
         // If no cached data, fetch and parse GTFS data
         if (!gtfsData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${normalizedProvider}/`;
           
-          if (category) {
-            url += `?category=${category}`;
+          if (normalizedCategory) {
+            url += `?category=${normalizedCategory}`;
           }
+          
+          // Trailing slash already added
           
           // Download ZIP file
           const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -1019,8 +1042,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -1072,11 +1095,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Get static GTFS data (for stop and route information)
         let gtfsStaticData;
@@ -1092,11 +1115,13 @@ export function registerGtfsTools(server: McpServer) {
         // If no cached static data, fetch and parse GTFS static data
         if (!gtfsStaticData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${normalizedProvider}/`;
           
-          if (category) {
-            url += `?category=${category}`;
+          if (normalizedCategory) {
+            url += `?category=${normalizedCategory}`;
           }
+          
+          // Trailing slash already added
           
           // Download ZIP file
           const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -1120,16 +1145,19 @@ export function registerGtfsTools(server: McpServer) {
           if (Date.now() - cached.timestamp < TRIP_UPDATES_CACHE_EXPIRY) {
             tripUpdatesData = cached.data;
           }
+        
         }
         
         // If no cached trip updates data, fetch and parse GTFS trip updates
         if (!tripUpdatesData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_TRIP_UPDATES_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_TRIP_UPDATES_ENDPOINT}/${provider}/`;
           
           if (category) {
             url += `?category=${category}`;
           }
+          
+          // Trailing slash already added
           
           try {
             // Download Protocol Buffer data
@@ -1318,8 +1346,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_TRIP_UPDATES_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -1335,7 +1363,7 @@ export function registerGtfsTools(server: McpServer) {
   // Search transit stops by location name
   server.tool(
     prefixToolName('search_transit_stops_by_location'),
-    'Search for transit stops near a named location. IMPORTANT: Use this tool for queries like "Show me bus stops near KLCC" or "What buses stop at KL Sentral?" This tool geocodes the location name to coordinates, then finds nearby stops.',
+    'Search for transit stops near a named location. IMPORTANT: Use this tool for queries like "Show me bus stops near KLCC" or "What buses stop at KL Sentral?" This tool geocodes the location name to coordinates, then finds nearby stops. For Rapid KL services, use specific terms like "rapid kl bus", "rapid rail", "mrt feeder" instead of just "prasarana" to ensure the correct category is selected automatically.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
@@ -1352,6 +1380,26 @@ export function registerGtfsTools(server: McpServer) {
       let normalizedCategory = category;
       
       try {
+        // If provider looks like prasarana but no category is provided, set a default category
+        // This helps users who don't specify a category in their query
+        if ((provider.toLowerCase() === 'prasarana' || provider.toLowerCase().includes('rapid')) && !category) {
+          // Analyze the location query to determine if it's likely a bus or rail search
+          const locationLower = location.toLowerCase();
+          
+          // Check if the location contains keywords suggesting rail/LRT/MRT
+          const railKeywords = ['lrt', 'mrt', 'monorail', 'train', 'station', 'rail', 'kelana jaya', 'ampang', 'sri petaling'];
+          const isBusKeyword = locationLower.includes('bus') || locationLower.includes('stop');
+          const isRailKeyword = railKeywords.some(keyword => locationLower.includes(keyword));
+          
+          if (isRailKeyword && !isBusKeyword) {
+            // If location suggests rail and not bus, use rail category
+            category = 'rapid-rail-kl';
+          } else {
+            // Default to bus if not clearly rail or if both bus and rail are mentioned
+            category = 'rapid-bus-kl';
+          }
+        }
+        
         // Step 1: Normalize provider and category first
         const normalized = normalizeProviderAndCategory(provider, category);
         
@@ -1443,7 +1491,7 @@ export function registerGtfsTools(server: McpServer) {
         category = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${provider}-${category || 'default'}`;
         
         // Get static GTFS data
         let gtfsStaticData;
@@ -1459,11 +1507,13 @@ export function registerGtfsTools(server: McpServer) {
         // If no cached data, fetch and parse GTFS static data
         if (!gtfsStaticData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${normalizedProvider}/`;
           
-          if (category) {
-            url += `?category=${category}`;
+          if (normalizedCategory) {
+            url += `?category=${normalizedCategory}`;
           }
+          
+          // Trailing slash already added
           
           // Download ZIP file
           const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -1489,8 +1539,8 @@ export function registerGtfsTools(server: McpServer) {
                 text: JSON.stringify({
                   success: false,
                   message: `No stops found for provider: ${provider}${category ? `, category: ${category}` : ''}`,
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                 }, null, 2),
               },
             ],
@@ -1534,8 +1584,8 @@ export function registerGtfsTools(server: McpServer) {
                   message: `No stops found within ${max_distance} km of "${location}"`,
                   location,
                   coordinates,
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   max_distance,
                   suggestion: 'Try increasing the max_distance parameter or searching for a different location.',
                 }, null, 2),
@@ -1562,11 +1612,13 @@ export function registerGtfsTools(server: McpServer) {
           // If no cached trip updates data, fetch and parse GTFS trip updates
           if (!tripUpdatesData || tripUpdatesData.length === 0) {
             // Build URL
-            let url = `${API_BASE_URL}${GTFS_TRIP_UPDATES_ENDPOINT}/${provider}`;
+            let url = `${API_BASE_URL}${GTFS_TRIP_UPDATES_ENDPOINT}/${normalizedProvider}/`;
             
-            if (category) {
-              url += `?category=${category}`;
+            if (normalizedCategory) {
+              url += `?category=${normalizedCategory}`;
             }
+            
+            // Trailing slash already added
             
             try {
               // Download Protocol Buffer data
@@ -1764,8 +1816,8 @@ export function registerGtfsTools(server: McpServer) {
                 response_data: parsedResponseData,
                 location,
                 provider_info: {
-                  provider: normalizedProvider,
-                  category: normalizedCategory,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
@@ -1818,11 +1870,11 @@ export function registerGtfsTools(server: McpServer) {
         }
         
         // Use normalized values
-        provider = normalized.provider;
-        category = normalized.category;
+        const normalizedProvider = normalized.provider;
+        const normalizedCategory = normalized.category;
         
         // Build cache key
-        const cacheKey = category ? `${provider}_${category}` : provider;
+        const cacheKey = `${normalizedProvider}-${normalizedCategory || 'default'}`;
         
         // Check if we have cached GTFS data
         let gtfsData;
@@ -1838,10 +1890,10 @@ export function registerGtfsTools(server: McpServer) {
         // If no cached data, fetch and parse GTFS data
         if (!gtfsData) {
           // Build URL
-          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
+          let url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${normalizedProvider}/`;
           
-          if (category) {
-            url += `?category=${category}`;
+          if (normalizedCategory) {
+            url += `?category=${normalizedCategory}`;
           }
           
           // Download ZIP file
@@ -1931,8 +1983,8 @@ export function registerGtfsTools(server: McpServer) {
                 api_url: `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}${category ? `?category=${category}` : ''}`,
                 response_data: responseData,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: provider,
+                  category: category,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
