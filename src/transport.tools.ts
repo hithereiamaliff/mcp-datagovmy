@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // API Base URL for Malaysia Open Data API
 const API_BASE_URL = 'https://api.data.gov.my';
@@ -13,7 +14,7 @@ const GTFS_REALTIME_ENDPOINT = '/gtfs-realtime';
 export function registerTransportTools(server: McpServer) {
   // List transport agencies
   server.tool(
-    'list_transport_agencies',
+    prefixToolName('list_transport_agencies'),
     'Lists available transport agencies with GTFS data',
     {
       limit: z.number().min(1).optional().describe('Maximum number of agencies to return'),
@@ -55,7 +56,7 @@ export function registerTransportTools(server: McpServer) {
 
   // Get transport data
   server.tool(
-    'get_transport_data',
+    prefixToolName('get_transport_data'),
     'Gets GTFS data for a specific transport agency',
     {
       dataset_id: z.string().describe('ID of the GTFS dataset (e.g., "gtfs_rapidkl", "gtfs_prasarana")'),
@@ -93,7 +94,7 @@ export function registerTransportTools(server: McpServer) {
 
   // GTFS Static API
   server.tool(
-    'get_gtfs_static',
+    prefixToolName('get_gtfs_static'),
     'Gets GTFS static data for a specific transport provider',
     {
       provider: z.string().describe('Provider name (e.g., "rapidkl", "ktmb", "prasarana")'),
@@ -157,7 +158,7 @@ export function registerTransportTools(server: McpServer) {
 
   // GTFS Realtime API
   server.tool(
-    'get_gtfs_realtime_vehicle_position',
+    prefixToolName('get_gtfs_realtime_vehicle_position'),
     'Gets GTFS realtime vehicle position data for a specific transport provider',
     {
       provider: z.string().describe('Provider name (e.g., "rapidkl", "ktmb", "prasarana")'),

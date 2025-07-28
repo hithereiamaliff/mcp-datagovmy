@@ -43,6 +43,7 @@ import { registerDashboardTools } from './dashboards.tools.js';
 import { registerUnifiedSearchTools } from './unified-search.tools.js';
 import { registerParquetTools } from './parquet.tools.js';
 import { registerGtfsTools } from './gtfs.tools.js';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
@@ -93,7 +94,7 @@ export default function createStatelessServer({
 
   // Register a simple hello tool for testing
   server.tool(
-    'hello',
+    prefixToolName('hello'),
     'A simple test tool to verify that the MCP server is working correctly',
     {},
     async () => {

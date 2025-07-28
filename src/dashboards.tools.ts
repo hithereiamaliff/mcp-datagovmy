@@ -6,6 +6,7 @@ import path from 'path';
 
 // Import the pre-generated dashboards index
 import { DASHBOARDS_INDEX } from '../scripts/dashboards-index.js';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Define dashboard metadata interface
 export interface DashboardMetadata {
@@ -177,7 +178,7 @@ export function searchDashboards(query: string): DashboardMetadata[] {
 export function registerDashboardTools(server: McpServer) {
   // List all available dashboards
   server.tool(
-    'list_dashboards',
+    prefixToolName('list_dashboards'),
     'Lists all available dashboards from the Malaysia Open Data platform',
     {
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
@@ -238,7 +239,7 @@ export function registerDashboardTools(server: McpServer) {
   
   // Search dashboards by query
   server.tool(
-    'search_dashboards',
+    prefixToolName('search_dashboards'),
     '⚠️ CONSIDER USING search_all INSTEAD: This only searches dashboards. For comprehensive results across datasets and dashboards, use search_all tool. ⚠️',
     {
       query: z.string().describe('Search query to match against dashboard metadata'),
@@ -293,7 +294,7 @@ export function registerDashboardTools(server: McpServer) {
   
   // Get dashboard details by name
   server.tool(
-    'get_dashboard_details',
+    prefixToolName('get_dashboard_details'),
     'Get comprehensive metadata for a dashboard by name',
     {
       name: z.string().describe('Name of the dashboard to retrieve metadata for'),
@@ -355,7 +356,7 @@ export function registerDashboardTools(server: McpServer) {
   
   // Get charts for a dashboard
   server.tool(
-    'get_dashboard_charts',
+    prefixToolName('get_dashboard_charts'),
     'Get chart configurations for a specific dashboard',
     {
       name: z.string().describe('Name of the dashboard to retrieve charts for'),

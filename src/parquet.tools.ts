@@ -5,6 +5,7 @@ import axios from 'axios';
 import { parquetReadObjects, asyncBufferFromUrl } from 'hyparquet';
 // Import compressors for BROTLI support
 import { compressors } from 'hyparquet-compressors';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Define the structure for Parquet metadata
 interface ParquetMetadata {
@@ -190,7 +191,7 @@ async function parseParquetFromUrl(url: string, maxRows: number = 100): Promise<
 export function registerParquetTools(server: McpServer) {
   // Parse a Parquet file from a URL
   server.tool(
-    'parse_parquet_file',
+    prefixToolName('parse_parquet_file'),
     'Parse and display data from a Parquet file URL',
     {
       url: z.string().url().describe('URL of the Parquet file to parse'),
@@ -281,7 +282,7 @@ export function registerParquetTools(server: McpServer) {
   
   // Get information about a Parquet file from a URL
   server.tool(
-    'get_parquet_info',
+    prefixToolName('get_parquet_info'),
     'Get metadata and structure information about a Parquet file',
     {
       url: z.string().url().describe('URL of the Parquet file to analyze'),
@@ -374,7 +375,7 @@ export function registerParquetTools(server: McpServer) {
   
   // Link to dashboard for a parquet file
   server.tool(
-    'find_dashboard_for_parquet',
+    prefixToolName('find_dashboard_for_parquet'),
     'Find the corresponding dashboard for a Parquet file',
     {
       url: z.string().url().describe('URL of the parquet file'),

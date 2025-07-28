@@ -260,11 +260,12 @@ const KNOWN_DATASETS = [
   { id: 'water_supply_area', description: 'Water Supply Coverage by Area' },
   { id: 'water_supply_state', description: 'Water Supply Coverage by State' }
 ];
+import { prefixToolName } from './utils/tool-naming.js';
 
 export function registerDataCatalogueTools(server: McpServer) {
   // List all datasets with rich metadata
   server.tool(
-    'list_datasets_catalogue',
+    prefixToolName('list_datasets_catalogue'),
     'Lists all datasets from the comprehensive catalogue with rich metadata',
     {
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
@@ -299,7 +300,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Search datasets by query
   server.tool(
-    'search_datasets',
+    prefixToolName('search_datasets'),
     'Search datasets by keywords across titles, descriptions and metadata',
     {
       query: z.string().describe('Search query to match against dataset metadata'),
@@ -329,7 +330,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Filter datasets by various criteria
   server.tool(
-    'filter_datasets',
+    prefixToolName('filter_datasets'),
     'Filter datasets by category, geography, frequency, demography, data source or year range',
     {
       category: z.string().optional().describe('Category or subcategory to filter by'),
@@ -382,7 +383,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Get dataset details by ID from catalogue
   server.tool(
-    'get_dataset_metadata',
+    prefixToolName('get_dataset_metadata'),
     'Get comprehensive metadata for a dataset by ID from the local catalogue',
     {
       id: z.string().describe('ID of the dataset to retrieve metadata for'),
@@ -435,7 +436,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Get available filter values
   server.tool(
-    'get_catalogue_filters',
+    prefixToolName('get_catalogue_filters'),
     'Get all available filter values for searching and filtering datasets',
     {},
     async () => {
@@ -457,7 +458,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Legacy tool - List known dataset IDs (keeping for backward compatibility)
   server.tool(
-    'list_known_datasets',
+    prefixToolName('list_known_datasets'),
     'Lists known dataset IDs that can be used with the OpenDOSM API',
     {},
     async () => {
@@ -485,7 +486,7 @@ export function registerDataCatalogueTools(server: McpServer) {
 
   // List datasets
   server.tool(
-    'list_datasets',
+    prefixToolName('list_datasets'),
     'Lists available datasets in the Malaysia Open Data catalogue',
     {
       id: z.string().optional().describe('Dataset ID to retrieve (e.g., "cpi_core")'),
@@ -574,7 +575,7 @@ export function registerDataCatalogueTools(server: McpServer) {
 
   // Get dataset details
   server.tool(
-    'get_dataset_details',
+    prefixToolName('get_dataset_details'),
     'Gets detailed information about a specific dataset',
     {
       id: z.string().describe('ID of the dataset to retrieve (e.g., "cpi_core")'),
@@ -669,7 +670,7 @@ export function registerDataCatalogueTools(server: McpServer) {
 
   // List dataset categories from our comprehensive filters
   server.tool(
-    'list_dataset_categories',
+    prefixToolName('list_dataset_categories'),
     'Lists all available dataset categories from the catalogue',
     {},
     async () => {
@@ -727,7 +728,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // List dataset agencies from our comprehensive filters
   server.tool(
-    'list_dataset_agencies',
+    prefixToolName('list_dataset_agencies'),
     'Lists all agencies (data sources) providing datasets',
     {},
     async () => {

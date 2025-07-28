@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Import the pre-generated catalogue index
 import { CATALOGUE_INDEX } from '../scripts/catalogue-index.js';
@@ -201,7 +202,7 @@ function filterDatasets(filters: any, datasets: DatasetMetadata[]): DatasetMetad
 export function registerDataCatalogueTools(server: McpServer) {
   // List all datasets with rich metadata
   server.tool(
-    'list_datasets_catalogue',
+    prefixToolName('list_datasets_catalogue'),
     'Lists all datasets from the comprehensive catalogue with rich metadata',
     {
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
@@ -252,7 +253,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Search datasets by query
   server.tool(
-    'search_datasets_catalogue',
+    prefixToolName('search_datasets_catalogue'),
     '⚠️ CONSIDER USING search_all INSTEAD: This only searches datasets. For comprehensive results across datasets and dashboards, use search_all tool. ⚠️',
     {
       query: z.string().describe('Search query to match against dataset metadata'),
@@ -297,7 +298,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Filter datasets by criteria
   server.tool(
-    'filter_datasets_catalogue',
+    prefixToolName('filter_datasets_catalogue'),
     'Filter datasets by various criteria such as frequency, geography, etc.',
     {
       frequency: z.string().optional().describe('Filter by data frequency (e.g., DAILY, MONTHLY, ANNUAL)'),
@@ -366,7 +367,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Get available filter options
   server.tool(
-    'get_dataset_filters',
+    prefixToolName('get_dataset_filters'),
     'Get available filter options for datasets',
     {},
     async () => {
@@ -404,7 +405,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   
   // Get dataset details by ID
   server.tool(
-    'get_dataset_details',
+    prefixToolName('get_dataset_details'),
     'Get comprehensive metadata for a dataset by ID',
     {
       id: z.string().describe('ID of the dataset to retrieve metadata for'),

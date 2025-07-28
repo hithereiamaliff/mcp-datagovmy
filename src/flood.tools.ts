@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Base URL for Malaysia Open Data API
 const API_BASE_URL = 'https://api.data.gov.my';
@@ -12,7 +13,7 @@ const FLOOD_WARNING_ENDPOINT = '/flood-warning';
  */
 export function registerFloodTools(server: McpServer) {
   server.tool(
-    'get_flood_warnings',
+    prefixToolName('get_flood_warnings'),
     'Gets current flood warnings for Malaysia',
     {
       state: z.string().optional().describe('State name to filter warnings (e.g., "Selangor", "Johor")'),

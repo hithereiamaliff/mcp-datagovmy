@@ -5,6 +5,7 @@ import * as GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import JSZip from 'jszip';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // API Base URL for Malaysia Open Data API
 const API_BASE_URL = 'https://api.data.gov.my';
@@ -432,7 +433,7 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export function registerGtfsTools(server: McpServer) {
   // Parse GTFS Static data
   server.tool(
-    'parse_gtfs_static',
+    prefixToolName('parse_gtfs_static'),
     'Parse GTFS Static data for a specific transport provider. IMPORTANT: For transit queries like "Show me routes from Rapid Penang", use get_transit_routes directly with the provider name. This is a low-level tool - prefer using get_transit_routes or get_transit_stops for most user queries.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
@@ -562,7 +563,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Parse GTFS Realtime data
   server.tool(
-    'parse_gtfs_realtime',
+    prefixToolName('parse_gtfs_realtime'),
     'Parse GTFS Realtime data for a specific transport provider. IMPORTANT: For transit queries like "Show me bus locations from Rapid Penang", use this tool directly with the provider name. Common names like "rapid penang", "rapid kuantan", or "mybas johor" are automatically mapped to the correct provider-category pairs.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
@@ -729,7 +730,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Get transit routes
   server.tool(
-    'get_transit_routes',
+    prefixToolName('get_transit_routes'),
     'Get transit routes from GTFS data. IMPORTANT: For transit route queries like "Show me routes from Rapid Penang", use this tool directly with the provider name. The tool supports common names like "rapid penang", "rapid kuantan", "ktmb", or "mybas johor" which will be automatically mapped to the correct provider and category. No need to use list_transport_agencies first.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
@@ -869,7 +870,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Get transit stops
   server.tool(
-    'get_transit_stops',
+    prefixToolName('get_transit_stops'),
     'Get transit stops from GTFS data. IMPORTANT: For transit stop queries like "Show me bus stops for Rapid Penang", use this tool directly with the provider name. The tool supports common names like "rapid penang", "rapid kuantan", "ktmb", or "mybas johor" which will be automatically mapped to the correct provider and category. No need to use list_transport_agencies first.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
@@ -1017,7 +1018,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Get transit arrivals
   server.tool(
-    'get_transit_arrivals',
+    prefixToolName('get_transit_arrivals'),
     'Get real-time transit arrivals at a specific stop. IMPORTANT: Use this tool directly for queries like "When will the next bus arrive at my stop?" or "Show me arrival times for Rapid Penang buses at stop X".',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),
@@ -1316,7 +1317,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Search transit stops by location name
   server.tool(
-    'search_transit_stops_by_location',
+    prefixToolName('search_transit_stops_by_location'),
     'Search for transit stops near a named location. IMPORTANT: Use this tool for queries like "Show me bus stops near KLCC" or "What buses stop at KL Sentral?" This tool geocodes the location name to coordinates, then finds nearby stops.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),
@@ -1740,7 +1741,7 @@ export function registerGtfsTools(server: McpServer) {
   
   // Find nearest transit stops
   server.tool(
-    'find_nearest_transit_stops',
+    prefixToolName('find_nearest_transit_stops'),
     'Find the nearest transit stops to a given location. IMPORTANT: Use this tool directly for queries like "Where is the nearest bus stop to my location?" or "How do I get to the nearest Rapid Penang bus stop?"',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),

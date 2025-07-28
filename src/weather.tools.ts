@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // API Base URL for Malaysia Open Data API
 const API_BASE_URL = 'https://api.data.gov.my';
@@ -12,7 +13,7 @@ const EARTHQUAKE_WARNING_ENDPOINT = '/weather/warning/earthquake';
 export function registerWeatherTools(server: McpServer) {
   // Get weather forecast
   server.tool(
-    'get_weather_forecast',
+    prefixToolName('get_weather_forecast'),
     'Gets weather forecast for Malaysia',
     {
       location: z.string().describe('Location name (e.g., "Kuala Lumpur", "Penang")'),
@@ -57,7 +58,7 @@ export function registerWeatherTools(server: McpServer) {
 
   // Get weather warnings
   server.tool(
-    'get_weather_warnings',
+    prefixToolName('get_weather_warnings'),
     'Gets current weather warnings for Malaysia',
     {
       type: z.string().optional().describe('Type of warning (e.g., "rain", "flood", "all")'),
@@ -102,7 +103,7 @@ export function registerWeatherTools(server: McpServer) {
 
   // Get earthquake warnings
   server.tool(
-    'get_earthquake_warnings',
+    prefixToolName('get_earthquake_warnings'),
     'Gets earthquake warnings for Malaysia',
     {
       days: z.number().min(1).max(30).optional().describe('Number of days to look back (1-30)'),

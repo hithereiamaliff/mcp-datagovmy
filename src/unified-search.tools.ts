@@ -4,6 +4,7 @@ import { z } from 'zod';
 // Import search functions and types from both modules
 import { searchDatasets, getAllDatasets, DatasetMetadata } from './datacatalogue.tools.js';
 import { searchDashboards, getAllDashboards, DashboardMetadata } from './dashboards.tools.js';
+import { prefixToolName } from './utils/tool-naming.js';
 
 // Define result interfaces
 interface SearchResult {
@@ -243,7 +244,7 @@ function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboar
 export function registerUnifiedSearchTools(server: McpServer) {
   // Unified search across datasets and dashboards
   server.tool(
-    'search_all',
+    prefixToolName('search_all'),
     '⭐⭐⭐ PRIMARY SEARCH TOOL: Always use this first for any data or visualization queries. Searches across both datasets and dashboards with intelligent fallback. ⭐⭐⭐',
     {
       query: z.string().describe('Search query to match against all content'),
