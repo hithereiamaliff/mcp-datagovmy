@@ -69,7 +69,10 @@ const PROVIDER_MAPPINGS: Record<string, { provider: string; category?: string }>
   // Prasarana services (mapped to provider + category)
   'rapid rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
   'rapid rail kl': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'rapid kl rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
+  'rapid kl bus': { provider: 'prasarana', category: 'rapid-bus-kl' },
   'rapid bus kl': { provider: 'prasarana', category: 'rapid-bus-kl' },
+  'rapid kl': { provider: 'prasarana', category: 'rapid-rail-kl' }, // Default to rail when just 'rapid kl' is specified
   'rapid penang': { provider: 'prasarana', category: 'rapid-bus-penang' },
   'rapid bus penang': { provider: 'prasarana', category: 'rapid-bus-penang' },
   'rapid kuantan': { provider: 'prasarana', category: 'rapid-bus-kuantan' },
