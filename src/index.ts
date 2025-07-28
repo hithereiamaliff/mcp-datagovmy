@@ -27,6 +27,10 @@ dotenv.config();
  * 4. Parquet files can now be accessed and parsed using the 'parse_parquet_file'
  *    and 'get_parquet_info' tools. These tools use the hyparquet JavaScript library
  *    and are fully compatible with the Smithery deployment environment.
+ * 
+ * 5. Geocoding is available through multiple providers (Google Maps, GrabMaps, 
+ *    and Nominatim). GrabMaps is optimized for Southeast Asian locations and 
+ *    will be preferred when available for Malaysian addresses.
  * =====================================================================
  */
 
@@ -54,6 +58,25 @@ export const configSchema = z.object({
   googleMapsApiKey: z.string()
     .optional()
     .describe('Google Maps API key for improved location detection. If not provided, will use OpenStreetMap Nominatim API as fallback.'),
+  
+  // GrabMaps API key
+  grabMapsApiKey: z.string()
+    .optional()
+    .describe('GrabMaps API key for optimized location detection in Southeast Asia'),
+  
+  // AWS credentials for GrabMaps integration via AWS Location Service
+  awsAccessKeyId: z.string()
+    .optional()
+    .describe('AWS Access Key ID for GrabMaps integration via AWS Location Service'),
+  
+  awsSecretAccessKey: z.string()
+    .optional()
+    .describe('AWS Secret Access Key for GrabMaps integration via AWS Location Service'),
+  
+  awsRegion: z.string()
+    .optional()
+    .default('ap-southeast-5')
+    .describe('AWS Region for GrabMaps integration via AWS Location Service (default: ap-southeast-5)'),
 });
 
 /**
@@ -70,12 +93,34 @@ export default function createStatelessServer({
   });
 
   // Extract config values
-  const { googleMapsApiKey } = _config;
+  const { googleMapsApiKey, grabMapsApiKey, awsAccessKeyId, awsSecretAccessKey, awsRegion } = _config;
   
-  // Set Google Maps API key in process.env if provided in config
+  // Set API keys in process.env if provided in config
   if (googleMapsApiKey) {
     process.env.GOOGLE_MAPS_API_KEY = googleMapsApiKey;
     console.log('Using Google Maps API key from configuration');
+  }
+  
+  // Set GrabMaps API key
+  if (grabMapsApiKey) {
+    process.env.GRABMAPS_API_KEY = grabMapsApiKey;
+    console.log('Using GrabMaps API key from configuration');
+  }
+  
+  // Set AWS credentials for GrabMaps integration via AWS Location Service
+  if (awsAccessKeyId) {
+    process.env.AWS_ACCESS_KEY_ID = awsAccessKeyId;
+    console.log('Using AWS Access Key ID from configuration');
+  }
+  
+  if (awsSecretAccessKey) {
+    process.env.AWS_SECRET_ACCESS_KEY = awsSecretAccessKey;
+    console.log('Using AWS Secret Access Key from configuration');
+  }
+  
+  if (awsRegion) {
+    process.env.AWS_REGION = awsRegion;
+    console.log(`Using AWS Region: ${awsRegion} from configuration`);
   }
   
   // Register all tool sets

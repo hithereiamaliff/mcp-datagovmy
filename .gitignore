@@ -16,6 +16,9 @@ dist/
 build/
 .smithery/
 
+# Test files
+test/
+
 # TypeScript
 *.tsbuildinfo
 

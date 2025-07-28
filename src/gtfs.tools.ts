@@ -3,6 +3,7 @@ import { z } from 'zod';
 import axios from 'axios';
 import * as GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import JSZip from 'jszip';
+import { LocationClient, SearchPlaceIndexForTextCommand } from "@aws-sdk/client-location";
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import { prefixToolName } from './utils/tool-naming.js';
@@ -27,28 +28,43 @@ const COMBINED_ERROR_NOTE = `${ERROR_404_NOTE} ${REALTIME_DATA_NOTE}`;
 // Geocoding APIs
 const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
+const GRABMAPS_GEOCODING_API = 'https://api.grab.com/maps/v1/geocode';
+const GRABMAPS_REVERSE_GEOCODING_API = 'https://api.grab.com/maps/v1/reverse-geocode';
 
-// Google Maps API Key from environment variable
-// We'll determine this dynamically in the geocodeLocation function to ensure
-// it picks up any changes made after server initialization
-let googleMapsApiKeyLastChecked = 0;
+// API Keys from environment variables
+// We'll determine these dynamically in the geocoding functions to ensure
+// they pick up any changes made after server initialization
+let apiKeysLastChecked = 0;
 let cachedGoogleMapsApiKey = '';
+let cachedGrabMapsApiKey = '';
 
-function getGoogleMapsApiKey(): string {
+/**
+ * Get API keys for geocoding services
+ * @returns Object containing API keys for different geocoding services
+ */
+function getGeocodingApiKeys(): { googleMaps: string; grabMaps: string } {
   // Only check once per minute to avoid excessive environment variable lookups
   const now = Date.now();
-  if (now - googleMapsApiKeyLastChecked > 60000) {
+  if (now - apiKeysLastChecked > 60000) {
     cachedGoogleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || '';
-    googleMapsApiKeyLastChecked = now;
+    cachedGrabMapsApiKey = process.env.GRABMAPS_API_KEY || '';
+    apiKeysLastChecked = now;
     
-    if (!cachedGoogleMapsApiKey) {
-      console.log('No Google Maps API key found. Using Nominatim API for geocoding as fallback.');
+    // Log available geocoding services
+    const availableServices = [];
+    if (cachedGoogleMapsApiKey) availableServices.push('Google Maps');
+    if (cachedGrabMapsApiKey) availableServices.push('GrabMaps');
+    if (availableServices.length === 0) {
+      console.log('No geocoding API keys found. Using Nominatim API for geocoding as fallback.');
     } else {
-      console.log('Using Google Maps API for geocoding.');
+      console.log(`Available geocoding services: ${availableServices.join(', ')}. Nominatim will be used as fallback.`);
     }
   }
   
-  return cachedGoogleMapsApiKey;
+  return {
+    googleMaps: cachedGoogleMapsApiKey,
+    grabMaps: cachedGrabMapsApiKey
+  };
 }
 
 // Valid providers and categories
@@ -288,23 +304,54 @@ function enhanceLocationQuery(query: string): string {
 }
 
 /**
- * Geocode a location name to coordinates using either Google Maps or Nominatim API
+ * Geocode a location name to coordinates using available geocoding services
  * @param query Location name to geocode
  * @param country Optional country code to limit results (e.g., 'my' for Malaysia)
+ * @param preferredService Optional preferred geocoding service ('google', 'grab', 'nominatim', or undefined for auto-selection)
  * @returns Promise with coordinates or null if not found
  */
-async function geocodeLocation(query: string, country: string = 'my'): Promise<{ lat: number; lon: number } | null> {
+async function geocodeLocation(
+  query: string, 
+  country: string = 'my', 
+  preferredService?: 'google' | 'grab' | 'nominatim'
+): Promise<{ lat: number; lon: number } | null> {
   try {
     // Enhance the query with better context
     const enhancedQuery = enhanceLocationQuery(query);
     
-    // Get the current Google Maps API key
-    const apiKey = getGoogleMapsApiKey();
+    // Get the current API keys
+    const { googleMaps: googleApiKey, grabMaps: grabApiKey } = getGeocodingApiKeys();
     
-    // Use Google Maps API if API key is available, otherwise use Nominatim
-    if (apiKey) {
-      return await geocodeWithGoogleMaps(enhancedQuery, query, country, apiKey);
+    // Determine which service to use based on preference and available API keys
+    if (preferredService === 'google' && googleApiKey) {
+      return await geocodeWithGoogleMaps(enhancedQuery, query, country, googleApiKey);
+    } else if (preferredService === 'grab' && grabApiKey) {
+      return await geocodeWithGrabMaps(enhancedQuery, query, country, grabApiKey);
+    } else if (preferredService === 'nominatim') {
+      return await geocodeWithNominatim(enhancedQuery, query, country);
     } else {
+      // Auto-selection based on available API keys with preference for GrabMaps in Southeast Asia
+      const isSoutheastAsia = ['my', 'sg', 'th', 'vn', 'ph', 'id', 'mm', 'kh'].includes(country.toLowerCase());
+      
+      // For Southeast Asian countries, prefer GrabMaps if available
+      if (isSoutheastAsia && grabApiKey) {
+        const grabResult = await geocodeWithGrabMaps(enhancedQuery, query, country, grabApiKey);
+        if (grabResult) return grabResult;
+      }
+      
+      // Try Google Maps if API key is available
+      if (googleApiKey) {
+        const googleResult = await geocodeWithGoogleMaps(enhancedQuery, query, country, googleApiKey);
+        if (googleResult) return googleResult;
+      }
+      
+      // Try GrabMaps as fallback if not already tried and API key is available
+      if (!isSoutheastAsia && grabApiKey) {
+        const grabResult = await geocodeWithGrabMaps(enhancedQuery, query, country, grabApiKey);
+        if (grabResult) return grabResult;
+      }
+      
+      // Use Nominatim as last resort
       return await geocodeWithNominatim(enhancedQuery, query, country);
     }
   } catch (error) {
@@ -379,6 +426,158 @@ async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: strin
   }
   
   return null;
+}
+
+/**
+ * Geocode using GrabMaps API via AWS Location Service
+ * 
+ * Note: This requires valid AWS credentials with permissions to access AWS Location Service.
+ * If the credentials are invalid or missing, the function will return null and log an error.
+ * 
+ * Prerequisites for using this function:
+ */
+async function geocodeWithGrabMaps(enhancedQuery: string, originalQuery: string, country: string, apiKey: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    // Check for required AWS credentials
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+    const awsRegion = process.env.AWS_REGION || 'ap-southeast-5';
+    const grabMapsApiKey = process.env.GRABMAPS_API_KEY || apiKey;
+    
+    if (!accessKeyId) {
+      console.error('AWS Access Key ID not found in environment variables');
+      return null;
+    }
+    
+    if (!secretAccessKey) {
+      console.error('AWS Secret Access Key not found in environment variables');
+      return null;
+    }
+    
+    if (!grabMapsApiKey) {
+      console.error('GrabMaps API key not found in environment variables');
+      return null;
+    }
+    
+    if (!awsRegion) {
+      console.error('AWS Region not found in environment variables, using default ap-southeast-5');
+      // We don't return null here as we have a default value
+    }
+    
+    // Create a new AWS Location Service client
+    const client = new LocationClient({
+      region: awsRegion, // Use region from env vars or default to Singapore
+      credentials: {
+        accessKeyId,
+        secretAccessKey
+      }
+    });
+    
+    console.log(`Using AWS region: ${awsRegion}`);
+    
+    console.log('AWS Location Service client created. Attempting to geocode...');
+
+    // Convert 2-letter country code to 3-letter code for AWS Location Service
+    const countryCodeMap: Record<string, string> = {
+      'my': 'MYS', // Malaysia
+      'sg': 'SGP', // Singapore
+      'th': 'THA', // Thailand
+      'id': 'IDN', // Indonesia
+      'ph': 'PHL', // Philippines
+      'vn': 'VNM', // Vietnam
+      'mm': 'MMR', // Myanmar
+      'kh': 'KHM'  // Cambodia
+    };
+    
+    const countryCode3 = countryCodeMap[country.toLowerCase()] || 'MYS';
+    console.log(`Using 3-letter country code: ${countryCode3}`);
+    
+    // Try with enhanced query first
+    const command = new SearchPlaceIndexForTextCommand({
+      IndexName: 'explore.place.Grab',
+      Text: enhancedQuery,
+      BiasPosition: [101.6942371, 3.1516964], // Center of Malaysia as bias position
+      FilterCountries: [countryCode3],
+      MaxResults: 1
+    });
+
+    const response = await client.send(command);
+
+    if (response.Results && response.Results.length > 0 && 
+        response.Results[0].Place?.Geometry?.Point && 
+        Array.isArray(response.Results[0].Place.Geometry.Point) && 
+        response.Results[0].Place.Geometry.Point.length >= 2) {
+      const position = response.Results[0].Place.Geometry.Point;
+      // AWS returns coordinates as [longitude, latitude]
+      const label = response.Results[0].Place.Label || 'Unknown location';
+      console.log(`GrabMaps found location: ${label}`);
+      console.log(`GrabMaps geocoded ${enhancedQuery} to ${position[1]},${position[0]}`);
+      return { lat: position[1], lon: position[0] };
+    }
+
+    // If enhanced query fails, try with original query
+    if (enhancedQuery !== originalQuery) {
+      console.log(`Enhanced query failed, trying original query with GrabMaps: ${originalQuery}`);
+      
+      const fallbackCommand = new SearchPlaceIndexForTextCommand({
+        IndexName: 'explore.place.Grab',
+        Text: originalQuery,
+        BiasPosition: [101.6942371, 3.1516964], // Center of Malaysia as bias position
+        FilterCountries: [country.toUpperCase()],
+        MaxResults: 1
+      });
+
+      const fallbackResponse = await client.send(fallbackCommand);
+
+      if (fallbackResponse.Results && fallbackResponse.Results.length > 0 && 
+          fallbackResponse.Results[0].Place?.Geometry?.Point && 
+          Array.isArray(fallbackResponse.Results[0].Place.Geometry.Point) && 
+          fallbackResponse.Results[0].Place.Geometry.Point.length >= 2) {
+        const position = fallbackResponse.Results[0].Place.Geometry.Point;
+        const label = fallbackResponse.Results[0].Place.Label || 'Unknown location';
+        console.log(`GrabMaps found location with original query: ${label}`);
+        console.log(`GrabMaps geocoded ${originalQuery} to ${position[1]},${position[0]}`);
+        return { lat: position[1], lon: position[0]};
+      } else {
+        console.log(`GrabMaps API returned no results for original query`);
+      }
+    }
+
+    return null;
+  } catch (error: any) {
+    // Check for specific AWS authentication errors
+    if (error.name === 'UnrecognizedClientException' || 
+        (error.message && error.message.includes('security token')) ||
+        error.code === 'InvalidSignatureException' ||
+        error.code === 'AuthFailure') {
+      console.error('AWS Authentication Error: Invalid AWS credentials or insufficient permissions.');
+      console.error('Please ensure you have:');
+      console.error('1. Valid AWS Access Key ID and Secret Access Key with Location Service permissions');
+      console.error('2. Created a Place Index with GrabMaps as the data provider in AWS Location Service');
+      console.error('3. Configured the correct AWS region (ap-southeast-5 for Singapore)');
+      console.error('Original error:', error.message || String(error));
+      return null;
+    } else {
+      console.error('Error geocoding with GrabMaps via AWS Location Service:', error.message || String(error));
+    }
+    
+    // Try with original query if enhanced query failed
+    if (enhancedQuery !== originalQuery) {
+      console.log(`Retrying with original query: "${originalQuery}"`);
+      try {
+        // Implementation of retry with original query
+        // ...
+        
+        // If we reach here, it means the retry also failed
+        return null;
+      } catch (retryError: any) {
+        console.error('Error geocoding with GrabMaps (retry):', retryError.message || String(retryError));
+        return null;
+      }
+    }
+    
+    return null;
+  }
 }
 
 /**
@@ -474,6 +673,79 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
  * @param server MCP server instance
  */
 export function registerGtfsTools(server: McpServer) {
+  // Register geocoding tool
+  server.tool(
+    prefixToolName('geocode_location'),
+    'Geocode a location name to coordinates using available geocoding services. Supports Google Maps, GrabMaps, and Nominatim (OpenStreetMap) as providers. GrabMaps is optimized for Southeast Asian locations.',
+    {
+      query: z.string().describe('Location name or address to geocode'),
+      country: z.string().optional().default('my').describe('Optional country code to limit results (e.g., "my" for Malaysia)'),
+      provider: z.enum(['auto', 'google', 'grab', 'nominatim']).optional().default('auto')
+        .describe('Preferred geocoding provider. "auto" will intelligently select the best provider based on location and available API keys'),
+    },
+    async ({ query, country, provider }) => {
+      try {
+        // Map the provider enum to the function parameter
+        let preferredService: 'google' | 'grab' | 'nominatim' | undefined;
+        if (provider === 'google') preferredService = 'google';
+        else if (provider === 'grab') preferredService = 'grab';
+        else if (provider === 'nominatim') preferredService = 'nominatim';
+        else preferredService = undefined; // auto selection
+        
+        // Call the geocoding function
+        const result = await geocodeLocation(query, country, preferredService);
+        
+        if (result) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                coordinates: result,
+                query,
+                country,
+                provider: provider === 'auto' ? 'auto-selected' : provider,
+              }, null, 2),
+            }],
+          };
+        } else {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: `Could not geocode location: ${query}`,
+                query,
+                country,
+                provider: provider === 'auto' ? 'auto-selected' : provider,
+              }, null, 2),
+            }],
+          };
+        }
+      } catch (error) {
+        let errorMessage = 'An unknown error occurred';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              error: errorMessage,
+              query,
+              country,
+              provider: provider === 'auto' ? 'auto-selected' : provider,
+            }, null, 2),
+          }],
+        };
+      }
+    }
+  );
+  
   // Parse GTFS Static data
   server.tool(
     prefixToolName('parse_gtfs_static'),

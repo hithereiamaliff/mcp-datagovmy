@@ -84,6 +84,60 @@ Gets chart information for a specific dashboard.
 
 5. **Handle empty results properly** - if a search returns no results, try broadening the search terms or using the `search_all` tool which automatically searches both datasets and dashboards.
 
+### Geocoding Tools
+
+#### `geocode_location`
+
+Geocode a location name to coordinates using available geocoding services. This tool supports multiple geocoding providers with intelligent selection and fallback.
+
+```json
+{
+  "query": "location name or address", // required: the location to geocode
+  "country": "my", // optional: country code to limit results (default: "my" for Malaysia)
+  "provider": "auto" // optional: preferred geocoding provider ("google", "grab", "nominatim", or "auto")
+}
+```
+
+**Geocoding Providers:**
+
+1. **Google Maps** - Requires a valid Google Maps API key set in `GOOGLE_MAPS_API_KEY` environment variable or MCP server config.
+
+2. **GrabMaps via AWS Location Service** - For Southeast Asian locations. Requires proper setup:
+   - GrabMaps API key set in environment variables or MCP server config:
+     - `GRABMAPS_API_KEY`: Your GrabMaps API key
+   - Valid AWS credentials with Location Service permissions:
+     - `AWS_ACCESS_KEY_ID`: Your AWS Access Key ID
+     - `AWS_SECRET_ACCESS_KEY`: Your AWS Secret Access Key
+     - `AWS_REGION`: AWS region where your Place Index is created (default: `ap-southeast-5` for Malaysia)
+   - A Place Index created in AWS Location Service with GrabMaps as the data provider (named `explore.place.Grab`)
+
+3. **Nominatim (OpenStreetMap)** - Free, open-source geocoding service. No API key required, but has usage limits.
+
+**Provider Selection Logic:**
+
+When `provider` is set to `auto` (default), the tool uses the following logic:
+- For Southeast Asian countries (MY, SG, TH, VN, PH, ID, MM, KH), tries GrabMaps first if credentials are available
+- Tries Google Maps if API key is available
+- Falls back to GrabMaps for non-Southeast Asian locations if not already tried
+- Uses Nominatim as the final fallback option
+
+**Supported providers:**
+- `auto` - Automatically select the best provider based on location and available API keys
+- `google` - Use Google Maps API (requires API key)
+- `grab` - Use GrabMaps API (requires API key, optimized for Southeast Asia)
+- `nominatim` - Use OpenStreetMap Nominatim API (free, no API key required)
+
+**Example usage:**
+```
+geocode_location
+{
+  "query": "KLCC",
+  "provider": "grab"
+}
+```
+
+**When to use:** Use this tool when you need to convert a location name or address to geographic coordinates. For Malaysian locations, the GrabMaps provider is recommended when available as it's optimized for Southeast Asian locations.
+
 ### GTFS Transit Data Tools
 
 The GTFS tools support intelligent provider and category normalization, allowing users to use common names instead of exact API parameters. For example, you can use "rapid penang" instead of specifying "prasarana" as the provider and "rapid-bus-penang" as the category.
@@ -294,7 +348,7 @@ get_transit_arrivals
 
 #### `search_transit_stops_by_location`
 
-Search for transit stops near a named location. This tool geocodes the location name to coordinates, then finds nearby stops with optional real-time arrival information.
+Search for transit stops near a named location. This tool geocodes the location name to coordinates using the multi-provider geocoding system (Google Maps, GrabMaps, or Nominatim), then finds nearby stops with optional real-time arrival information. For Malaysian locations, GrabMaps is preferred when available as it's optimized for Southeast Asian locations.
 
 ```json
 {

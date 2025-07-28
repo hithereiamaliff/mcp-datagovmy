@@ -29,6 +29,7 @@
   "license": "MIT",
   "description": "Malaysia Open Data MCP Server for Smithery",
   "dependencies": {
+    "@aws-sdk/client-location": "^3.848.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "axios": "^1.11.0",
     "csv-parser": "^3.0.0",

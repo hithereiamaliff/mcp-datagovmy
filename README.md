@@ -20,6 +20,11 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
 - **Hybrid Data Access Architecture**
   - Pre-generated static indexes for efficient searching
   - Dynamic API calls for detailed metadata
+- **Multi-Provider Geocoding**
+  - Support for Google Maps, GrabMaps, and Nominatim (OpenStreetMap)
+  - Intelligent service selection based on location and available API keys
+  - GrabMaps optimization for locations in Malaysia
+  - Automatic fallback between providers
 - **Comprehensive Data Sources**
   - Malaysia's Data Catalogue with rich metadata
   - Interactive Dashboards for data visualization
