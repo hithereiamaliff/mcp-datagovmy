@@ -20,15 +20,26 @@ const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
 
 // Google Maps API Key from environment variable
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+// We'll determine this dynamically in the geocodeLocation function to ensure
+// it picks up any changes made after server initialization
+let googleMapsApiKeyLastChecked = 0;
+let cachedGoogleMapsApiKey = '';
 
-// Determine which geocoding service to use
-const USE_GOOGLE_MAPS = !!GOOGLE_MAPS_API_KEY;
-
-if (!USE_GOOGLE_MAPS) {
-  console.log('No Google Maps API key found. Using Nominatim API for geocoding as fallback.');
-} else {
-  console.log('Using Google Maps API for geocoding.');
+function getGoogleMapsApiKey(): string {
+  // Only check once per minute to avoid excessive environment variable lookups
+  const now = Date.now();
+  if (now - googleMapsApiKeyLastChecked > 60000) {
+    cachedGoogleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || '';
+    googleMapsApiKeyLastChecked = now;
+    
+    if (!cachedGoogleMapsApiKey) {
+      console.log('No Google Maps API key found. Using Nominatim API for geocoding as fallback.');
+    } else {
+      console.log('Using Google Maps API for geocoding.');
+    }
+  }
+  
+  return cachedGoogleMapsApiKey;
 }
 
 // Valid providers and categories
@@ -258,9 +269,12 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
     // Enhance the query with better context
     const enhancedQuery = enhanceLocationQuery(query);
     
+    // Get the current Google Maps API key
+    const apiKey = getGoogleMapsApiKey();
+    
     // Use Google Maps API if API key is available, otherwise use Nominatim
-    if (USE_GOOGLE_MAPS) {
-      return await geocodeWithGoogleMaps(enhancedQuery, query, country);
+    if (apiKey) {
+      return await geocodeWithGoogleMaps(enhancedQuery, query, country, apiKey);
     } else {
       return await geocodeWithNominatim(enhancedQuery, query, country);
     }
@@ -273,12 +287,12 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
 /**
  * Geocode using Google Maps API
  */
-async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: string, country: string): Promise<{ lat: number; lon: number } | null> {
+async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: string, country: string, apiKey: string): Promise<{ lat: number; lon: number } | null> {
   // Build URL with parameters for Google Maps API
   const params = new URLSearchParams({
     address: enhancedQuery,
     components: `country:${country}`,
-    key: GOOGLE_MAPS_API_KEY
+    key: apiKey
   });
   
   // Make request to Google Maps Geocoding API
@@ -311,7 +325,7 @@ async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: strin
     const originalParams = new URLSearchParams({
       address: originalQuery,
       components: `country:${country}`,
-      key: GOOGLE_MAPS_API_KEY
+      key: apiKey
     });
     
     const originalResponse = await axios.get(`${GOOGLE_MAPS_GEOCODING_API}?${originalParams.toString()}`);
@@ -1366,24 +1380,46 @@ export function registerGtfsTools(server: McpServer) {
         
         // Step 2: Geocode the location name to coordinates
         console.log(`Attempting to geocode location: ${location}`);
-        const coordinates = await geocodeLocation(location, country);
+        let coordinates = await geocodeLocation(location, country);
         
+        // If initial geocoding fails, try with additional context
         if (!coordinates) {
-          // Provide helpful suggestions for common locations
-          let suggestion = `Please try a different location name or provide more specific details.`;
+          console.log(`Geocoding failed for "${location}", trying with additional context...`);
           
-          // Special handling for Penang hotels
-          if (location.toLowerCase().includes('hotel') && !location.toLowerCase().includes('penang')) {
-            suggestion = `Try adding 'Penang' to your search, e.g., "${location}, Penang".`;
+          // Try with state/city context for Malaysian locations
+          const locationVariations = [
+            // Add full country name
+            `${location}, Malaysia`,
+            // Add common Malaysian states if not already in the query
+            ...(!/penang|pulau pinang/i.test(location) ? [`${location}, Penang`, `${location}, Pulau Pinang`] : []),
+            ...(!/selangor/i.test(location) ? [`${location}, Selangor`] : []),
+            ...(!/kuala lumpur|kl/i.test(location) ? [`${location}, Kuala Lumpur`, `${location}, KL`] : []),
+            ...(!/johor/i.test(location) ? [`${location}, Johor`] : []),
+            // Try with common prefixes for condos/apartments
+            ...(!/condo|condominium|apartment|residence|residency|heights|court|villa|garden|park/i.test(location) ? 
+              [`${location} Condominium`, `${location} Residence`, `${location} Apartment`] : [])
+          ];
+          
+          // Try each variation until we get coordinates
+          for (const variation of locationVariations) {
+            console.log(`Trying variation: "${variation}"`);
+            coordinates = await geocodeLocation(variation, country);
+            if (coordinates) {
+              console.log(`Successfully geocoded with variation: "${variation}"`);
+              break;
+            }
           }
-          
+        }
+        
+        // If all geocoding attempts fail, return error
+        if (!coordinates) {
           return {
             content: [
               {
                 type: 'text',
                 text: JSON.stringify({
                   success: false,
-                  message: `Could not geocode location: "${location}". ${suggestion}`,
+                  message: `Could not geocode location: "${location}". Please try a different location name or provide more specific details.`,
                   location,
                   country,
                   provider_info: {
@@ -1392,15 +1428,13 @@ export function registerGtfsTools(server: McpServer) {
                     valid_providers: VALID_PROVIDERS,
                     valid_categories: PRASARANA_CATEGORIES
                   },
-                  suggestion
+                  suggestion: 'Please try a more specific address with city/state name, or use a nearby landmark.'
                 }, null, 2),
               },
             ],
           };
         }
         
-        // Use normalized values
-        provider = normalized.provider;
         category = normalized.category;
         
         // Build cache key
