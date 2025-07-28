@@ -64,7 +64,7 @@ const PROVIDER_MAPPINGS: Record<string, { provider: string; category?: string }>
   'ktm': { provider: 'ktmb' },
   'keretapi tanah melayu': { provider: 'ktmb' },
   'keretapi tanah melayu berhad': { provider: 'ktmb' },
-  'prasarana': { provider: 'prasarana' },
+  'prasarana': { provider: 'prasarana', category: 'rapid-rail-kl' },
   
   // Prasarana services (mapped to provider + category)
   'rapid rail': { provider: 'prasarana', category: 'rapid-rail-kl' },
@@ -1363,7 +1363,7 @@ export function registerGtfsTools(server: McpServer) {
   // Search transit stops by location name
   server.tool(
     prefixToolName('search_transit_stops_by_location'),
-    'Search for transit stops near a named location. IMPORTANT: Use this tool for queries like "Show me bus stops near KLCC" or "What buses stop at KL Sentral?" This tool geocodes the location name to coordinates, then finds nearby stops. For Rapid KL services, use specific terms like "rapid kl bus", "rapid rail", "mrt feeder" instead of just "prasarana" to ensure the correct category is selected automatically.',
+    'Search for transit stops near a named location. IMPORTANT: Use this tool for queries like "Show me bus stops near KLCC" or "What buses stop at KL Sentral?" This tool geocodes the location name to coordinates, then finds nearby stops. CRITICAL: For Rapid KL services, ALWAYS use specific terms in the provider parameter like "rapid kl bus", "rapid rail", "mrt feeder", "lrt", "mrt" instead of using "prasarana" with a separate category parameter. DO NOT use provider="prasarana" with category="rapid-rail-kl" as this causes 404 errors. Instead use provider="rapid rail" or provider="lrt" or provider="mrt" or provider="mrt feeder" or provider="rapid kl bus" without a category parameter.',
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
