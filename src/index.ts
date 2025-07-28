@@ -51,7 +51,9 @@ type ToolRegistrationFn = (server: McpServer) => void;
 // Define the config schema
 export const configSchema = z.object({
   // Optional Google Maps API key for geocoding
-  googleMapsApiKey: z.string().optional().describe('Google Maps API key for improved geocoding. If not provided, will use Nominatim API as fallback.'),
+  googleMapsApiKey: z.string()
+    .optional()
+    .describe('Google Maps API key for improved location detection. If not provided, will use OpenStreetMap Nominatim API as fallback.'),
 });
 
 /**
