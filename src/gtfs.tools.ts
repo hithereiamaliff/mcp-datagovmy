@@ -180,6 +180,60 @@ async function parseGtfsStaticZip(buffer: Buffer): Promise<Record<string, any[]>
 }
 
 /**
+ * Enhance location query with Malaysian context if needed
+ * @param query Original location query
+ * @returns Enhanced query with better context for geocoding
+ */
+function enhanceLocationQuery(query: string): string {
+  // Don't modify if already contains state/country information
+  const malaysianStates = ['penang', 'pulau pinang', 'selangor', 'kuala lumpur', 'kl', 'johor', 'kedah', 'kelantan', 
+                          'melaka', 'malacca', 'negeri sembilan', 'pahang', 'perak', 'perlis', 'sabah', 
+                          'sarawak', 'terengganu', 'labuan', 'putrajaya'];
+  
+  // Check if query already contains state information
+  const lowercaseQuery = query.toLowerCase();
+  const hasStateInfo = malaysianStates.some(state => lowercaseQuery.includes(state));
+  
+  if (hasStateInfo || lowercaseQuery.includes('malaysia')) {
+    return query; // Already has sufficient context
+  }
+  
+  // Special handling for specific hotels in Penang
+  const penangHotels = [
+    'hompton hotel', 'cititel', 'g hotel', 'eastern & oriental', 'e&o hotel', 'shangri-la', 
+    'shangri la', 'holiday inn', 'tune hotel', 'hotel jen', 'the light', 'lexis suites', 
+    'hard rock hotel', 'bayview', 'equatorial', 'four points', 'vouk hotel', 'neo+', 'neo plus',
+    'royale chulan', 'the wembley', 'sunway hotel', 'hotel royal', 'st giles', 'flamingo'
+  ];
+  
+  // Check if query contains any Penang hotel names
+  if (penangHotels.some(hotel => lowercaseQuery.includes(hotel))) {
+    return `${query}, Penang, Malaysia`;
+  }
+  
+  // Check for common hotel chains or landmarks that might need context
+  if (lowercaseQuery.includes('hotel') || 
+      lowercaseQuery.includes('mall') || 
+      lowercaseQuery.includes('airport')) {
+    
+    // Check for Penang-specific locations
+    if (lowercaseQuery.includes('bayan lepas') || 
+        lowercaseQuery.includes('georgetown') || 
+        lowercaseQuery.includes('george town') || 
+        lowercaseQuery.includes('butterworth') ||
+        lowercaseQuery.includes('bukit mertajam') ||
+        lowercaseQuery.includes('batu ferringhi')) {
+      return `${query}, Penang, Malaysia`;
+    }
+    
+    // Add Malaysia as context to improve geocoding results
+    return `${query}, Malaysia`;
+  }
+  
+  return query;
+}
+
+/**
  * Geocode a location name to coordinates using Nominatim API
  * @param query Location name to geocode
  * @param country Optional country code to limit results (e.g., 'my' for Malaysia)
@@ -187,9 +241,12 @@ async function parseGtfsStaticZip(buffer: Buffer): Promise<Record<string, any[]>
  */
 async function geocodeLocation(query: string, country: string = 'my'): Promise<{ lat: number; lon: number } | null> {
   try {
+    // Enhance the query with better context
+    const enhancedQuery = enhanceLocationQuery(query);
+    
     // Build URL with parameters
     const params = new URLSearchParams({
-      q: query,
+      q: enhancedQuery,
       format: 'json',
       limit: '1',
       countrycodes: country,
@@ -209,6 +266,31 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
         lat: parseFloat(result.lat),
         lon: parseFloat(result.lon),
       };
+    }
+    
+    // If enhanced query failed and it was different from original, try the original
+    if (enhancedQuery !== query) {
+      console.log(`Enhanced query failed, trying original query: ${query}`);
+      const originalParams = new URLSearchParams({
+        q: query,
+        format: 'json',
+        limit: '1',
+        countrycodes: country,
+      });
+      
+      const originalResponse = await axios.get(`${NOMINATIM_API}?${originalParams.toString()}`, {
+        headers: {
+          'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
+        },
+      });
+      
+      if (originalResponse.data && originalResponse.data.length > 0) {
+        const result = originalResponse.data[0];
+        return {
+          lat: parseFloat(result.lat),
+          lon: parseFloat(result.lon),
+        };
+      }
     }
     
     return null;
@@ -1151,28 +1233,17 @@ export function registerGtfsTools(server: McpServer) {
       arrivals_limit: z.number().optional().describe('Maximum number of arrivals to include per stop (default: 3)'),
     },
     async ({ provider, category, location, country = 'my', limit = 5, max_distance = 5, include_arrivals = true, arrivals_limit = 3 }) => {
+      // Store normalized values at function scope so they're available in catch block
+      let normalizedProvider = provider;
+      let normalizedCategory = category;
+      
       try {
-        // Step 1: Geocode the location name to coordinates
-        const coordinates = await geocodeLocation(location, country);
-        
-        if (!coordinates) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  message: `Could not geocode location: "${location}". Please try a different location name or provide coordinates directly.`,
-                  location,
-                  country,
-                }, null, 2),
-              },
-            ],
-          };
-        }
-        
-        // Step 2: Normalize provider and category
+        // Step 1: Normalize provider and category first
         const normalized = normalizeProviderAndCategory(provider, category);
+        
+        // Update function scope variables for catch block
+        normalizedProvider = normalized.provider;
+        normalizedCategory = normalized.category;
         
         // If there's an error, return it
         if (normalized.error) {
@@ -1190,6 +1261,41 @@ export function registerGtfsTools(server: McpServer) {
                     provider: 'prasarana',
                     category: 'rapid-rail-kl'
                   } : undefined
+                }, null, 2),
+              },
+            ],
+          };
+        }
+        
+        // Step 2: Geocode the location name to coordinates
+        console.log(`Attempting to geocode location: ${location}`);
+        const coordinates = await geocodeLocation(location, country);
+        
+        if (!coordinates) {
+          // Provide helpful suggestions for common locations
+          let suggestion = `Please try a different location name or provide more specific details.`;
+          
+          // Special handling for Penang hotels
+          if (location.toLowerCase().includes('hotel') && !location.toLowerCase().includes('penang')) {
+            suggestion = `Try adding 'Penang' to your search, e.g., "${location}, Penang".`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  message: `Could not geocode location: "${location}". ${suggestion}`,
+                  location,
+                  country,
+                  provider_info: {
+                    provider: normalizedProvider,
+                    category: normalizedCategory,
+                    valid_providers: VALID_PROVIDERS,
+                    valid_categories: PRASARANA_CATEGORIES
+                  },
+                  suggestion
                 }, null, 2),
               },
             ],
@@ -1499,6 +1605,17 @@ export function registerGtfsTools(server: McpServer) {
         const statusCode = axiosError?.response?.status;
         const responseData = axiosError?.response?.data;
         
+        // Try to parse the Buffer data if present
+        let parsedResponseData = responseData;
+        if (responseData && responseData.type === 'Buffer' && Array.isArray(responseData.data)) {
+          try {
+            const buffer = Buffer.from(responseData.data);
+            parsedResponseData = JSON.parse(buffer.toString());
+          } catch (parseError) {
+            console.error('Error parsing buffer data:', parseError);
+          }
+        }
+        
         return {
           content: [
             {
@@ -1508,14 +1625,15 @@ export function registerGtfsTools(server: McpServer) {
                 message: 'Failed to search transit stops by location',
                 error: error instanceof Error ? error.message : 'Unknown error',
                 status_code: statusCode,
-                response_data: responseData,
+                response_data: parsedResponseData,
                 location,
                 provider_info: {
-                  provider,
-                  category,
+                  provider: normalizedProvider,
+                  category: normalizedCategory,
                   valid_providers: VALID_PROVIDERS,
                   valid_categories: PRASARANA_CATEGORIES
                 },
+                suggestion: 'Make sure you are using a valid category for the provider. For Prasarana, use one of: ' + PRASARANA_CATEGORIES.join(', ') + '. For location-based searches, try adding more context like city or state name.'
               }, null, 2),
             },
           ],
