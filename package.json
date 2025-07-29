@@ -1,11 +1,21 @@
 {
-  "name": "datagovmy-mcp",
+  "name": "mcp-datagovmy",
   "version": "1.0.0",
+  "description": "Malaysia Open Data MCP Server for Smithery",
+  "main": "./src/index.ts",
   "module": "./src/index.ts",
   "type": "module",
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE",
+    "TOOLS.md",
+    "PROMPT.md"
+  ],
   "scripts": {
     "start": "node index.js",
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "dev": "npx @smithery/cli@1.2.14 dev",
     "deploy": "npm run build && npx @smithery/cli@1.2.14 deploy",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -27,7 +37,10 @@
   ],
   "author": "hithereiamaliff",
   "license": "MIT",
-  "description": "Malaysia Open Data MCP Server for Smithery",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hithereiamaliff/mcp-datagovmy.git"
+  },
   "dependencies": {
     "@aws-sdk/client-location": "^3.848.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
