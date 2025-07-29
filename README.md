@@ -254,17 +254,13 @@ If you encounter deployment issues:
 2. Verify that your `Dockerfile` and `smithery.yaml` are in the repository root
 3. Check that the `index.js` file exports a valid MCP server function
 
-## License
-
-MIT - See [LICENSE](./LICENSE) file for details.
-
 ## Configuration
 
 ### Environment Variables
 
 This project supports the following configuration options:
 
-**Geocoding Credentials (Only Required for GTFS Transit Features)**:
+**Geocoding Credentials (Optional. Only for GTFS Transit Features Usage)**:
 
 The following credentials are **only needed if you plan to use the GTFS transit tools** that require geocoding services. Other features like data catalogue access, weather forecasts, and DOSM data do not require these credentials.
 
@@ -272,7 +268,7 @@ The following credentials are **only needed if you plan to use the GTFS transit 
 - **grabMapsApiKey**: Optional. Required for GrabMaps geocoding, which is optimized for locations in Malaysia.
 - **awsAccessKeyId**: Required for GrabMaps integration. AWS access key for GrabMaps API authentication.
 - **awsSecretAccessKey**: Required for GrabMaps integration. AWS secret key for GrabMaps API authentication.
-- **awsRegion**: Required for GrabMaps integration. AWS region for GrabMaps API (default: 'ap-southeast-5' for Malaysia region).
+- **awsRegion**: Required for GrabMaps integration. AWS region for GrabMaps API (e.g. 'ap-southeast-5' for Malaysia region or ap-southeast-1 for Singapore region).
 
 If neither Google Maps nor GrabMaps API keys are provided, the GTFS transit tools will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding, which is free and doesn't require credentials.
 
@@ -293,7 +289,7 @@ GOOGLE_MAPS_API_KEY=your_google_api_key_here
 GRAB_MAPS_API_KEY=your_grab_api_key_here
 AWS_ACCESS_KEY_ID=your_aws_access_key_for_grabmaps
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key_for_grabmaps
-AWS_REGION=ap-southeast-5
+AWS_REGION=ap-southeast-5 # Malaysia region or ap-southeast-1 # Singapore region
 ```
 
 2. The variables will be automatically loaded when you run the server locally using `npm run dev`
@@ -307,7 +303,7 @@ When connecting to your MCP server through Smithery:
    - `grabMapsApiKey` - GrabMaps API key
    - `awsAccessKeyId` - AWS access key for GrabMaps
    - `awsSecretAccessKey` - AWS secret key for GrabMaps
-   - `awsRegion` - AWS region for GrabMaps (default: ap-southeast-5 for Malaysia region)
+   - `awsRegion` - AWS region for GrabMaps (e.g. ap-southeast-5 for Malaysia region or ap-southeast-1 for Singapore region)
 3. Enter your API keys and AWS credentials in these fields
 4. Click "Get Link" to generate your connection URL
 
@@ -323,6 +319,10 @@ The API keys will be securely passed to the server during connection.
 **Note about GTFS Realtime Tools:** The `parse_gtfs_realtime` tool is currently in development and has limited availability. Real-time data access through this MCP is experimental and may not be available for all providers or routes. For up-to-date train and bus schedules, bus locations, and arrivals in real-time, please use official transit apps like Google Maps, MyRapid PULSE, Moovit, or Lugo.
 
 All other tools like data catalogue access, dashboard search, weather forecasts, and DOSM data do not require any geocoding credentials.
+
+## License
+
+MIT - See [LICENSE](./LICENSE) file for details.
 
 ## Acknowledgments
 
