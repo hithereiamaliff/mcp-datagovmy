@@ -264,12 +264,22 @@ MIT - See [LICENSE](./LICENSE) file for details.
 
 This project supports the following configuration options:
 
-- **googleMapsApiKey**: Optional. If provided, the GTFS transit tools will use Google Maps API for geocoding location names to coordinates. If not provided, the system will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding.
+**Geocoding Credentials (Only Required for GTFS Transit Features)**:
 
-You can set this configuration option in two ways:
+The following credentials are **only needed if you plan to use the GTFS transit tools** that require geocoding services. Other features like data catalogue access, weather forecasts, and DOSM data do not require these credentials.
+
+- **googleMapsApiKey**: Optional. If provided, the system will use Google Maps API for geocoding location names to coordinates.
+- **grabMapsApiKey**: Optional. Required for GrabMaps geocoding, which is optimized for locations in Malaysia.
+- **awsAccessKeyId**: Required for GrabMaps integration. AWS access key for GrabMaps API authentication.
+- **awsSecretAccessKey**: Required for GrabMaps integration. AWS secret key for GrabMaps API authentication.
+- **awsRegion**: Required for GrabMaps integration. AWS region for GrabMaps API (default: 'ap-southeast-5' for Malaysia region).
+
+If neither Google Maps nor GrabMaps API keys are provided, the GTFS transit tools will automatically fall back to using Nominatim (OpenStreetMap) API for geocoding, which is free and doesn't require credentials.
+
+You can set these configuration options in two ways:
 
 1. **Through Smithery's configuration interface** when connecting to the MCP server
-2. **As an environment variable** (GOOGLE_MAPS_API_KEY) for local development
+2. **As environment variables** (GOOGLE_MAPS_API_KEY, GRAB_MAPS_API_KEY) for local development
 
 #### Setting up environment variables
 
@@ -279,7 +289,11 @@ The project uses `dotenv` to load environment variables from a `.env` file durin
 
 1. Create a `.env` file in the root directory with the following content:
 ```
-GOOGLE_MAPS_API_KEY=your_actual_api_key_here
+GOOGLE_MAPS_API_KEY=your_google_api_key_here
+GRAB_MAPS_API_KEY=your_grab_api_key_here
+AWS_ACCESS_KEY_ID=your_aws_access_key_for_grabmaps
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_for_grabmaps
+AWS_REGION=ap-southeast-5
 ```
 
 2. The variables will be automatically loaded when you run the server locally using `npm run dev`
@@ -288,18 +302,34 @@ GOOGLE_MAPS_API_KEY=your_actual_api_key_here
 
 When connecting to your MCP server through Smithery:
 1. Click on "Connect Malaysia Open Data MCP Server"
-2. You'll see a configuration option for `googleMapsApiKey`
-3. Enter your Google Maps API key in this field
+2. You'll see configuration options for:
+   - `googleMapsApiKey` - Google Maps API key
+   - `grabMapsApiKey` - GrabMaps API key
+   - `awsAccessKeyId` - AWS access key for GrabMaps
+   - `awsSecretAccessKey` - AWS secret key for GrabMaps
+   - `awsRegion` - AWS region for GrabMaps (default: ap-southeast-5 for Malaysia region)
+3. Enter your API keys and AWS credentials in these fields
 4. Click "Get Link" to generate your connection URL
 
-The API key will be securely passed to the server during connection.
+The API keys will be securely passed to the server during connection.
 
-**Note:** Google Maps API provides better geocoding results for many locations in Malaysia compared to Nominatim, but requires an API key. If you don't provide a Google Maps API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations.
+**Note:** For Malaysian locations, GrabMaps provides the most accurate geocoding results, followed by Google Maps, with both requiring API keys. If you don't provide either API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations in Malaysia.
+
+**Important:** These geocoding credentials are only required for the following GTFS transit tools:
+- `get_transit_routes` - When converting location names to coordinates
+- `get_transit_stops` - When converting location names to coordinates
+- `parse_gtfs_static` - When geocoding is needed for stop locations
+
+**Note about GTFS Realtime Tools:** The `parse_gtfs_realtime` tool is currently in development and has limited availability. Real-time data access through this MCP is experimental and may not be available for all providers or routes. For up-to-date train and bus schedules, bus locations, and arrivals in real-time, please use official transit apps like Google Maps, MyRapid PULSE, Moovit, or Lugo.
+
+All other tools like data catalogue access, dashboard search, weather forecasts, and DOSM data do not require any geocoding credentials.
 
 ## Acknowledgments
 
 - [Malaysia Open Data Portal](https://data.gov.my/)
 - [Department of Statistics Malaysia](https://open.dosm.gov.my/)
 - [Malaysian Meteorological Department](https://www.met.gov.my/)
-- [Google Maps Platform](https://developers.google.com/maps) for geocoding services
+- [Google Maps Platform](https://developers.google.com/maps) for geocoding
+- [GrabMaps](https://grabmaps.grab.com/solutions/service-apis) for geocoding
+- [Nominatim](https://nominatim.org/) for geocoding
 - [Smithery](https://smithery.ai/) for the MCP framework
