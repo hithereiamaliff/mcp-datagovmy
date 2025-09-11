@@ -15,6 +15,8 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
 - **Parquet File Support** using pure JavaScript
   - Parse Parquet files directly in the browser or Node.js
   - Support for BROTLI compression
+  - Intelligent date field handling for empty date objects
+  - Increased row limits (up to 500 rows) for comprehensive data retrieval
   - Fallback to metadata estimation when parsing fails
   - Automatic dashboard URL mapping for visualization
 - **Hybrid Data Access Architecture**
@@ -125,6 +127,9 @@ This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
 ### Parquet File Handling
 
 - `parse_parquet_file`: Parse and display data from a Parquet file URL
+  - Supports up to 500 rows for comprehensive data analysis
+  - Automatically handles empty date objects with appropriate formatting
+  - Processes BigInt values for proper JSON serialization
 - `get_parquet_info`: Get metadata and structure information about a Parquet file
 - `find_dashboard_for_parquet`: Find the corresponding dashboard URL for a Parquet file
 
@@ -149,6 +154,27 @@ This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
 ### Test
 
 - `hello`: A simple test tool to verify that the MCP server is working correctly
+
+## Data-Catalogue Information Retrieval
+
+The MCP server provides robust handling for data-catalogue information retrieval:
+
+### Date Handling in Parquet Files
+
+- **Empty Date Objects**: The system automatically detects and handles empty date objects in parquet files
+- **Dataset-Specific Handling**: Special handling for known datasets like `employment_sector` with annual data from 2001-2022
+- **Pattern Recognition**: Detects date patterns in existing data to maintain consistent formatting
+- **Increased Row Limits**: Supports up to 500 rows (increased from 100) for more comprehensive data analysis
+
+### BigInt Processing
+
+- **Automatic Serialization**: BigInt values are automatically converted to strings for proper JSON serialization
+- **Type Preservation**: Original types are preserved in the schema information
+
+### Schema Detection
+
+- **Automatic Type Inference**: Detects column types including special handling for date fields
+- **Consistent Representation**: Ensures date fields are consistently represented as strings
 
 ## Usage Examples
 

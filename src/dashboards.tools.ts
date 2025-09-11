@@ -27,6 +27,9 @@ const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com/data-gov-my/datag
 // Local dashboards directory path
 const dashboardsDir = path.join(process.cwd(), 'dashboards');
 
+// Check if the dashboards directory exists
+const dashboardsDirExists = fs.existsSync(dashboardsDir);
+
 // Cache for detailed dashboard metadata
 let detailsCache: Record<string, DashboardMetadata> = {};
 let lastCacheUpdate: number = 0;
@@ -50,34 +53,47 @@ async function getDashboardByName(name: string): Promise<DashboardMetadata | nul
     return null; // Dashboard not found in index
   }
   
-  // If we have detailed info cached, return it
+  // If we have detailed info cached and it's not expired, return it
   if (detailsCache[name] && Date.now() - lastCacheUpdate < CACHE_TTL) {
     return detailsCache[name];
   }
   
   try {
-    // First check if we have it locally
-    const filePath = path.join(dashboardsDir, `${name}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const data = JSON.parse(content) as DashboardMetadata;
+    // Always try to fetch from GitHub first to get the latest data
+    try {
+      const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${name}.json`);
+      const detailedData = response.data as DashboardMetadata;
       
       // Cache the detailed data
-      detailsCache[name] = data;
+      detailsCache[name] = detailedData;
       lastCacheUpdate = Date.now();
       
-      return data;
+      console.log(`Successfully fetched ${name} dashboard from GitHub`);
+      return detailedData;
+    } catch (error: any) {
+      console.warn(`Could not fetch ${name} from GitHub, falling back to local file:`, error.message);
+      
+      // If GitHub fetch fails, check if we can fall back to local file
+      if (dashboardsDirExists) {
+        const filePath = path.join(dashboardsDir, `${name}.json`);
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          const data = JSON.parse(content) as DashboardMetadata;
+          
+          // Cache the detailed data
+          detailsCache[name] = data;
+          lastCacheUpdate = Date.now();
+          
+          console.log(`Using local file for ${name} dashboard`);
+          return data;
+        }
+      } else {
+        console.log('Local dashboards directory does not exist, using only GitHub data');
+      }
+      
+      // If local file doesn't exist either, throw error to be caught by outer catch
+      throw new Error(`Dashboard ${name} not found locally or on GitHub`);
     }
-    
-    // If not found locally, try to fetch from GitHub
-    const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${name}.json`);
-    const detailedData = response.data as DashboardMetadata;
-    
-    // Cache the detailed data
-    detailsCache[name] = detailedData;
-    lastCacheUpdate = Date.now();
-    
-    return detailedData;
   } catch (error) {
     console.error(`Error getting dashboard ${name}:`, error);
     // If we can't get detailed data, return the basic info from the index

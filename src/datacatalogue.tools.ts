@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 import { prefixToolName } from './utils/tool-naming.js';
 
 // Import the pre-generated catalogue index
@@ -8,6 +10,12 @@ import { CATALOGUE_INDEX } from '../scripts/catalogue-index.js';
 
 // GitHub raw content base URL for fetching specific datasets
 const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com/data-gov-my/datagovmy-meta/main/data-catalogue';
+
+// Local data-catalogue directory path
+const dataCatalogueDir = path.join(process.cwd(), 'data-catalogue');
+
+// Check if the data-catalogue directory exists
+const dataCatalogueDirExists = fs.existsSync(dataCatalogueDir);
 
 // Define dataset metadata interface
 export interface DatasetMetadata {
@@ -64,12 +72,12 @@ async function getDatasetById(id: string): Promise<DatasetMetadata | null> {
     return null; // Dataset ID not found in index
   }
   
-  // If we have detailed info cached, return it
+  // If we have detailed info cached and it's not expired, return it
   if (detailsCache[id] && Date.now() - lastCacheUpdate < CACHE_TTL) {
     return detailsCache[id];
   }
   
-  // Otherwise fetch detailed info from GitHub
+  // Always try to fetch from GitHub first to get the latest data
   try {
     const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${id}.json`);
     const detailedData = response.data as DatasetMetadata;
@@ -78,9 +86,10 @@ async function getDatasetById(id: string): Promise<DatasetMetadata | null> {
     detailsCache[id] = detailedData;
     lastCacheUpdate = Date.now();
     
+    console.log(`Successfully fetched ${id} dataset from GitHub`);
     return detailedData;
-  } catch (error) {
-    console.error(`Error fetching dataset ${id}:`, error);
+  } catch (error: any) {
+    console.warn(`Error fetching dataset ${id} from GitHub:`, error.message);
     // If we can't get detailed data, return the basic info from the index
     return basicInfo;
   }
