@@ -1,4 +1,6 @@
-# Use Node.js slim for a small and secure base image
+# Malaysia Open Data MCP Server - Streamable HTTP
+# For self-hosting on VPS with nginx reverse proxy
+
 FROM node:22-slim
 
 # Set the working directory
@@ -7,26 +9,33 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies including dev dependencies for building
+# Install ALL dependencies (including devDependencies for build)
 RUN npm ci
 
 # Copy source code and configuration
 COPY tsconfig.json ./
-COPY smithery.yaml ./
 COPY src ./src
 COPY scripts ./scripts
 
 # Build TypeScript code
 RUN npm run build
 
-# Build with specific Smithery CLI version
-RUN npx -y @smithery/cli@1.2.14 build -o .smithery/index.cjs
+# Copy scripts to dist (needed for runtime imports)
+RUN cp -r scripts dist/
 
-# Copy smithery.yaml to dist directory
-RUN mkdir -p dist && cp smithery.yaml dist/
+# Remove devDependencies after build
+RUN npm prune --production
 
-# Expose the port the application runs on
-EXPOSE 8182
+# Expose port for HTTP server
+EXPOSE 8080
 
-# Start the server using Smithery with specific version
-CMD ["npx", "@smithery/cli@1.2.14", "serve"]
+# Environment variables (can be overridden at runtime)
+ENV PORT=8080
+ENV HOST=0.0.0.0
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Start the HTTP server
+CMD ["node", "dist/src/http-server.js"]
