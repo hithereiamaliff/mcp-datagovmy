@@ -555,7 +555,9 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
     
     async function loadData() {
       try {
-        const res = await fetch('/analytics');
+        // Get base path from current URL (handles nginx reverse proxy paths like /datagovmy/)
+        const basePath = window.location.pathname.replace(/\\/analytics\\/dashboard\\/?$/, '');
+        const res = await fetch(basePath + '/analytics');
         const data = await res.json();
         
         document.getElementById('uptime').textContent = 'Uptime: ' + data.uptime;

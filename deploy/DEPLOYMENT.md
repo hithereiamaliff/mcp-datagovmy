@@ -173,6 +173,28 @@ npx @modelcontextprotocol/inspector
 # Enter URL: https://mcp.techmavie.digital/datagovmy/mcp
 ```
 
+## Analytics Dashboard
+
+The MCP server includes a built-in analytics dashboard that tracks:
+- **Total requests and tool calls**
+- **Tool usage distribution** (doughnut chart)
+- **Hourly request trends** (last 24 hours)
+- **Requests by endpoint** (bar chart)
+- **Top clients by user agent**
+- **Recent tool calls feed**
+
+### Analytics Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/analytics` | Full analytics summary (JSON) |
+| `/analytics/tools` | Detailed tool usage stats (JSON) |
+| `/analytics/dashboard` | Visual dashboard with charts (HTML) |
+
+**Dashboard URL:** `https://mcp.techmavie.digital/datagovmy/analytics/dashboard`
+
+The dashboard auto-refreshes every 30 seconds.
+
 ## Management Commands
 
 ### View logs

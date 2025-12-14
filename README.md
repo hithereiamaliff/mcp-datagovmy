@@ -1,6 +1,8 @@
 # Malaysia Open Data MCP
 
-[![smithery badge](https://smithery.ai/badge/@hithereiamaliff/mcp-datagovmy)](https://smithery.ai/server/@hithereiamaliff/mcp-datagovmy)
+**MCP Endpoint:** `https://mcp.techmavie.digital/datagovmy/mcp`
+
+**Analytics Dashboard:** [`https://mcp.techmavie.digital/datagovmy/analytics/dashboard`](https://mcp.techmavie.digital/datagovmy/analytics/dashboard)
 
 MCP (Model Context Protocol) server for Malaysia's Open Data APIs, providing easy access to government datasets and collections.
 
@@ -76,27 +78,9 @@ Refer to [PROMPT.md](./PROMPT.md) for comprehensive AI integration guidelines.
 npm install
 ```
 
-## Development
+## Quick Start (Hosted Server)
 
-To run the MCP server in development mode:
-
-```bash
-npx @smithery/cli dev
-```
-
-## Build
-
-To build the MCP server for deployment:
-
-```bash
-npx @smithery/cli build
-```
-
-## Deployment
-
-### Option 1: Hosted Server (Recommended)
-
-The easiest way to use this MCP server is via the hosted endpoint. No installation required!
+The easiest way to use this MCP server is via the hosted endpoint. **No installation required!**
 
 **Server URL:**
 ```
@@ -138,7 +122,7 @@ Or via headers:
 > 
 > GrabMaps uses AWS Location Service under the hood, so AWS credentials are required alongside the GrabMaps API key.
 
-#### Client Configuration
+### Client Configuration
 
 For Claude Desktop / Cursor / Windsurf, add to your MCP configuration:
 
@@ -165,28 +149,33 @@ With your own API key:
 }
 ```
 
-### Option 2: Smithery
+## Self-Hosted (VPS)
 
-This MCP is also available on Smithery:
+If you prefer to run your own instance, see [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for detailed VPS deployment instructions with Docker and Nginx.
 
-1. Make sure you have the Smithery CLI installed:
-   ```bash
-   npm install -g @smithery/cli
-   ```
+## Analytics Dashboard
 
-2. Build the project:
-   ```bash
-   npx @smithery/cli build
-   ```
+The hosted server includes a built-in analytics dashboard:
 
-3. Deploy to Smithery:
-   ```bash
-   npx @smithery/cli deploy
-   ```
+**Dashboard URL:** [`https://mcp.techmavie.digital/datagovmy/analytics/dashboard`](https://mcp.techmavie.digital/datagovmy/analytics/dashboard)
 
-### Option 3: Self-Hosted (VPS)
+### Analytics Endpoints
 
-See [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for detailed VPS deployment instructions with Docker and Nginx.
+| Endpoint | Description |
+|----------|-------------|
+| `/analytics` | Full analytics summary (JSON) |
+| `/analytics/tools` | Detailed tool usage stats (JSON) |
+| `/analytics/dashboard` | Visual dashboard with charts (HTML) |
+
+The dashboard tracks:
+- Total requests and tool calls
+- Tool usage distribution
+- Hourly request trends (last 24 hours)
+- Requests by endpoint
+- Top clients by user agent
+- Recent tool calls feed
+
+Auto-refreshes every 30 seconds.
 
 ## Available Tools
 
@@ -307,6 +296,7 @@ Please be aware of rate limits for the underlying APIs. Excessive requests may b
 ## Project Structure
 
 - `src/index.ts`: Main MCP server implementation and tool registration
+- `src/http-server.ts`: Streamable HTTP server for VPS deployment
 - `src/datacatalogue.tools.ts`: Data Catalogue API tools
 - `src/dashboards.tools.ts`: Dashboard access and search tools
 - `src/dosm.tools.ts`: Department of Statistics Malaysia tools
@@ -316,46 +306,62 @@ Please be aware of rate limits for the underlying APIs. Excessive requests may b
 - `src/transport.tools.ts`: Transport and GTFS data tools
 - `src/gtfs.tools.ts`: GTFS parsing and analysis tools
 - `src/flood.tools.ts`: Flood warning and monitoring tools
-- `Dockerfile`: Docker configuration for Smithery
-- `smithery.yaml`: Smithery configuration
+- `Dockerfile`: Docker configuration for VPS deployment
+- `docker-compose.yml`: Docker Compose configuration
+- `deploy/`: Deployment files (nginx config, deployment guide)
 - `package.json`: Project dependencies and scripts
 - `tsconfig.json`: TypeScript configuration
 
-## Local Testing
-
-To test locally before deploying to Smithery:
+## Local Development
 
 ```bash
-# Start the development server
-npm run dev
+# Install dependencies
+npm install
 
-# Or build and run the production version
+# Run HTTP server in development mode
+npm run dev:http
+
+# Or build and run production version
 npm run build
-npm start
+npm run start:http
 
-# In another terminal, test the hello tool
-curl -X POST http://localhost:8182/invoke/hello -H "Content-Type: application/json" -d "{}"
-```
+# Test health endpoint
+curl http://localhost:8080/health
 
-You can also use the Smithery CLI for local development:
-
-```bash
-# Run in development mode
-npx @smithery/cli dev
-
-# Build for production
-npx @smithery/cli build
+# Test MCP endpoint
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ## Troubleshooting
 
-### Deployment Issues
+### Container Issues
 
-If you encounter deployment issues:
+```bash
+# Check container status
+docker compose ps
 
-1. Ensure your GitHub repository is public or properly connected to Smithery
-2. Verify that your `Dockerfile` and `smithery.yaml` are in the repository root
-3. Check that the `index.js` file exports a valid MCP server function
+# View logs
+docker compose logs -f
+
+# Restart container
+docker compose restart
+```
+
+### Test MCP Connection
+
+```bash
+# List tools
+curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Call hello tool
+curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"my_hello","arguments":{}}}'
+```
 
 ## Configuration
 
@@ -377,42 +383,24 @@ If neither Google Maps nor GrabMaps API keys are provided, the GTFS transit tool
 
 You can set these configuration options in two ways:
 
-1. **Through Smithery's configuration interface** when connecting to the MCP server
-2. **As environment variables** (GOOGLE_MAPS_API_KEY, GRAB_MAPS_API_KEY) for local development
+1. **Via URL query parameters** when connecting to the hosted server (see Quick Start section)
+2. **As environment variables** for local development or self-hosted deployment
 
 #### Setting up environment variables
 
-**For local development:**
+Create a `.env` file in the root directory:
 
-The project uses `dotenv` to load environment variables from a `.env` file during development.
-
-1. Create a `.env` file in the root directory with the following content:
-```
+```env
 GOOGLE_MAPS_API_KEY=your_google_api_key_here
-GRAB_MAPS_API_KEY=your_grab_api_key_here
+GRABMAPS_API_KEY=your_grab_api_key_here
 AWS_ACCESS_KEY_ID=your_aws_access_key_for_grabmaps
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key_for_grabmaps
-AWS_REGION=ap-southeast-5 # Malaysia region or ap-southeast-1 # Singapore region
+AWS_REGION=ap-southeast-5
 ```
 
-2. The variables will be automatically loaded when you run the server locally using `npm run dev`
+The variables will be automatically loaded when you run the server.
 
-**For Smithery deployment:**
-
-When connecting to your MCP server through Smithery:
-1. Click on "Connect Malaysia Open Data MCP Server"
-2. You'll see configuration options for:
-   - `googleMapsApiKey` - Google Maps API key
-   - `grabMapsApiKey` - GrabMaps API key
-   - `awsAccessKeyId` - AWS access key for GrabMaps
-   - `awsSecretAccessKey` - AWS secret key for GrabMaps
-   - `awsRegion` - AWS region for GrabMaps (e.g. ap-southeast-5 for Malaysia region or ap-southeast-1 for Singapore region)
-3. Enter your API keys and AWS credentials in these fields
-4. Click "Get Link" to generate your connection URL
-
-The API keys will be securely passed to the server during connection.
-
-**Note:** For Malaysian locations, GrabMaps provides the most accurate geocoding results, followed by Google Maps, with both requiring API keys. If you don't provide either API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations in Malaysia.
+**Note:** For Malaysian locations, GrabMaps provides the most accurate geocoding results, followed by Google Maps. If you don't provide either API key, the system will automatically use Nominatim API instead, which is free but may have less accurate results for some locations in Malaysia.
 
 **Important:** These geocoding credentials are only required for the following GTFS transit tools:
 - `get_transit_routes` - When converting location names to coordinates
@@ -435,4 +423,4 @@ MIT - See [LICENSE](./LICENSE) file for details.
 - [Google Maps Platform](https://developers.google.com/maps) for geocoding
 - [GrabMaps](https://grabmaps.grab.com/solutions/service-apis) for geocoding
 - [Nominatim](https://nominatim.org/) for geocoding
-- [Smithery](https://smithery.ai/) for the MCP framework
+- [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP framework
