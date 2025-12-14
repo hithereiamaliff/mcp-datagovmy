@@ -1,15 +1,13 @@
 # Malaysia Open Data MCP Server - Docker Compose
 # For self-hosting on VPS at mcp.techmavie.digital/datagovmy
 
-version: '3.8'
-
 services:
   mcp-datagovmy:
     build: .
     container_name: mcp-datagovmy
     restart: unless-stopped
     ports:
-      - "8082:8080"
+      - "8083:8080"
     environment:
       - PORT=8080
       - HOST=0.0.0.0
