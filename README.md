@@ -94,7 +94,80 @@ npx @smithery/cli build
 
 ## Deployment
 
-This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
+### Option 1: Hosted Server (Recommended)
+
+The easiest way to use this MCP server is via the hosted endpoint. No installation required!
+
+**Server URL:**
+```
+https://mcp.techmavie.digital/datagovmy/mcp
+```
+
+#### Using Your Own API Keys
+
+You can provide your own API keys via URL query parameters:
+
+```
+https://mcp.techmavie.digital/datagovmy/mcp?googleMapsApiKey=YOUR_KEY
+```
+
+Or via headers:
+- `X-Google-Maps-Api-Key: YOUR_KEY`
+- `X-GrabMaps-Api-Key: YOUR_KEY`
+- `X-AWS-Access-Key-Id: YOUR_KEY`
+- `X-AWS-Secret-Access-Key: YOUR_KEY`
+- `X-AWS-Region: ap-southeast-5`
+
+**Supported Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `googleMapsApiKey` | Google Maps API key for geocoding |
+| `grabMapsApiKey` | GrabMaps API key for Southeast Asia geocoding |
+| `awsAccessKeyId` | AWS Access Key ID for AWS Location Service |
+| `awsSecretAccessKey` | AWS Secret Access Key |
+| `awsRegion` | AWS Region (default: ap-southeast-5) |
+
+> **⚠️ Important: GrabMaps Requirements**
+> 
+> To use GrabMaps geocoding, you need **ALL FOUR** parameters:
+> - `grabMapsApiKey`
+> - `awsAccessKeyId`
+> - `awsSecretAccessKey`
+> - `awsRegion`
+> 
+> GrabMaps uses AWS Location Service under the hood, so AWS credentials are required alongside the GrabMaps API key.
+
+#### Client Configuration
+
+For Claude Desktop / Cursor / Windsurf, add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "malaysia-opendata": {
+      "transport": "streamable-http",
+      "url": "https://mcp.techmavie.digital/datagovmy/mcp"
+    }
+  }
+}
+```
+
+With your own API key:
+```json
+{
+  "mcpServers": {
+    "malaysia-opendata": {
+      "transport": "streamable-http",
+      "url": "https://mcp.techmavie.digital/datagovmy/mcp?googleMapsApiKey=YOUR_KEY"
+    }
+  }
+}
+```
+
+### Option 2: Smithery
+
+This MCP is also available on Smithery:
 
 1. Make sure you have the Smithery CLI installed:
    ```bash
@@ -110,6 +183,10 @@ This MCP is designed to be deployed to Smithery. Follow these steps to deploy:
    ```bash
    npx @smithery/cli deploy
    ```
+
+### Option 3: Self-Hosted (VPS)
+
+See [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for detailed VPS deployment instructions with Docker and Nginx.
 
 ## Available Tools
 
