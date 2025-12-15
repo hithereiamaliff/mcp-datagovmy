@@ -17,6 +17,8 @@ dotenv.config();
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -37,7 +39,7 @@ import { prefixToolName } from './utils/tool-naming.js';
 type ToolRegistrationFn = (server: McpServer) => void;
 
 // ============================================================================
-// Analytics Tracking
+// Analytics Tracking with File Persistence
 // ============================================================================
 interface ToolCall {
   tool: string;
@@ -59,7 +61,15 @@ interface Analytics {
   hourlyRequests: Record<string, number>;
 }
 
-const analytics: Analytics = {
+// Analytics file path - use /data for Docker volume mount, fallback to local
+const ANALYTICS_DIR = process.env.ANALYTICS_DIR || '/data';
+const ANALYTICS_FILE = path.join(ANALYTICS_DIR, 'analytics.json');
+
+const MAX_RECENT_CALLS = 100;
+const SAVE_INTERVAL_MS = 30000; // Save every 30 seconds
+
+// Default analytics state
+const defaultAnalytics: Analytics = {
   serverStartTime: new Date().toISOString(),
   totalRequests: 0,
   totalToolCalls: 0,
@@ -72,7 +82,63 @@ const analytics: Analytics = {
   hourlyRequests: {},
 };
 
-const MAX_RECENT_CALLS = 100;
+// Load analytics from file or use defaults
+function loadAnalytics(): Analytics {
+  try {
+    // Ensure directory exists
+    if (!fs.existsSync(ANALYTICS_DIR)) {
+      fs.mkdirSync(ANALYTICS_DIR, { recursive: true });
+    }
+    
+    if (fs.existsSync(ANALYTICS_FILE)) {
+      const data = fs.readFileSync(ANALYTICS_FILE, 'utf-8');
+      const loaded = JSON.parse(data) as Analytics;
+      console.log(`Loaded analytics from ${ANALYTICS_FILE}:`, {
+        totalRequests: loaded.totalRequests,
+        totalToolCalls: loaded.totalToolCalls,
+      });
+      return loaded;
+    }
+  } catch (error) {
+    console.error('Failed to load analytics:', error);
+  }
+  console.log('Starting with fresh analytics');
+  return { ...defaultAnalytics };
+}
+
+// Save analytics to file
+function saveAnalytics(): void {
+  try {
+    // Ensure directory exists
+    if (!fs.existsSync(ANALYTICS_DIR)) {
+      fs.mkdirSync(ANALYTICS_DIR, { recursive: true });
+    }
+    
+    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analytics, null, 2));
+    console.log(`Analytics saved to ${ANALYTICS_FILE}`);
+  } catch (error) {
+    console.error('Failed to save analytics:', error);
+  }
+}
+
+// Initialize analytics from file
+const analytics: Analytics = loadAnalytics();
+
+// Periodic save
+setInterval(saveAnalytics, SAVE_INTERVAL_MS);
+
+// Save on process exit
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM, saving analytics...');
+  saveAnalytics();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('Received SIGINT, saving analytics...');
+  saveAnalytics();
+  process.exit(0);
+});
 
 function trackRequest(req: Request, endpoint: string) {
   analytics.totalRequests++;
@@ -347,7 +413,93 @@ app.post('/analytics/reset', (req: Request, res: Response) => {
   analytics.hourlyRequests = {};
   analytics.serverStartTime = new Date().toISOString();
   
+  saveAnalytics();
   res.json({ message: 'Analytics reset successfully', timestamp: analytics.serverStartTime });
+});
+
+// Analytics endpoint - import/restore (protected by query param)
+app.post('/analytics/import', (req: Request, res: Response) => {
+  const importKey = req.query.key;
+  if (importKey !== process.env.ANALYTICS_RESET_KEY && importKey !== 'malaysia-opendata-2024') {
+    res.status(403).json({ error: 'Invalid import key' });
+    return;
+  }
+  
+  try {
+    const importData = req.body;
+    
+    // Merge imported data with current analytics (add to existing counts)
+    if (importData.totalRequests) {
+      analytics.totalRequests += importData.totalRequests;
+    }
+    if (importData.totalToolCalls) {
+      analytics.totalToolCalls += importData.totalToolCalls;
+    }
+    
+    // Merge tool calls
+    if (importData.toolCalls || importData.breakdown?.byTool) {
+      const toolData = importData.toolCalls || importData.breakdown?.byTool || {};
+      for (const [tool, count] of Object.entries(toolData)) {
+        analytics.toolCalls[tool] = (analytics.toolCalls[tool] || 0) + (count as number);
+      }
+    }
+    
+    // Merge request methods
+    if (importData.requestsByMethod || importData.breakdown?.byMethod) {
+      const methodData = importData.requestsByMethod || importData.breakdown?.byMethod || {};
+      for (const [method, count] of Object.entries(methodData)) {
+        analytics.requestsByMethod[method] = (analytics.requestsByMethod[method] || 0) + (count as number);
+      }
+    }
+    
+    // Merge endpoints
+    if (importData.requestsByEndpoint || importData.breakdown?.byEndpoint) {
+      const endpointData = importData.requestsByEndpoint || importData.breakdown?.byEndpoint || {};
+      for (const [endpoint, count] of Object.entries(endpointData)) {
+        analytics.requestsByEndpoint[endpoint] = (analytics.requestsByEndpoint[endpoint] || 0) + (count as number);
+      }
+    }
+    
+    // Merge hourly requests
+    if (importData.hourlyRequests) {
+      for (const [hour, count] of Object.entries(importData.hourlyRequests)) {
+        analytics.hourlyRequests[hour] = (analytics.hourlyRequests[hour] || 0) + (count as number);
+      }
+    }
+    
+    // Merge clients by IP
+    if (importData.clientsByIp || importData.clients?.byIp) {
+      const ipData = importData.clientsByIp || importData.clients?.byIp || {};
+      for (const [ip, count] of Object.entries(ipData)) {
+        analytics.clientsByIp[ip] = (analytics.clientsByIp[ip] || 0) + (count as number);
+      }
+    }
+    
+    // Merge clients by user agent
+    if (importData.clientsByUserAgent || importData.clients?.byUserAgent) {
+      const agentData = importData.clientsByUserAgent || importData.clients?.byUserAgent || {};
+      for (const [agent, count] of Object.entries(agentData)) {
+        analytics.clientsByUserAgent[agent] = (analytics.clientsByUserAgent[agent] || 0) + (count as number);
+      }
+    }
+    
+    // Add recent tool calls (prepend imported ones)
+    if (importData.recentToolCalls) {
+      analytics.recentToolCalls = [...importData.recentToolCalls, ...analytics.recentToolCalls].slice(0, MAX_RECENT_CALLS);
+    }
+    
+    saveAnalytics();
+    res.json({ 
+      message: 'Analytics imported successfully', 
+      current: {
+        totalRequests: analytics.totalRequests,
+        totalToolCalls: analytics.totalToolCalls,
+      }
+    });
+  } catch (error) {
+    console.error('Failed to import analytics:', error);
+    res.status(400).json({ error: 'Failed to import analytics data' });
+  }
 });
 
 // Analytics dashboard - visual HTML page
