@@ -55,6 +55,81 @@ function initializeFirebase() {
   }
 }
 
+/**
+ * Sanitize keys for Firebase - replace invalid characters with safe alternatives
+ * Firebase keys cannot contain: . # $ / [ ]
+ */
+function sanitizeKey(key: string): string {
+  return key
+    .replace(/\./g, '_dot_')
+    .replace(/#/g, '_hash_')
+    .replace(/\$/g, '_dollar_')
+    .replace(/\//g, '_slash_')
+    .replace(/\[/g, '_lbracket_')
+    .replace(/\]/g, '_rbracket_');
+}
+
+/**
+ * Sanitize an object's keys recursively for Firebase compatibility
+ */
+function sanitizeObject(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeObject(item));
+  }
+
+  if (typeof obj === 'object') {
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const sanitizedKey = sanitizeKey(key);
+      sanitized[sanitizedKey] = sanitizeObject(value);
+    }
+    return sanitized;
+  }
+
+  return obj;
+}
+
+/**
+ * Desanitize keys when loading from Firebase
+ */
+function desanitizeKey(key: string): string {
+  return key
+    .replace(/_dot_/g, '.')
+    .replace(/_hash_/g, '#')
+    .replace(/_dollar_/g, '$')
+    .replace(/_slash_/g, '/')
+    .replace(/_lbracket_/g, '[')
+    .replace(/_rbracket_/g, ']');
+}
+
+/**
+ * Desanitize an object's keys recursively
+ */
+function desanitizeObject(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => desanitizeObject(item));
+  }
+
+  if (typeof obj === 'object') {
+    const desanitized: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const desanitizedKey = desanitizeKey(key);
+      desanitized[desanitizedKey] = desanitizeObject(value);
+    }
+    return desanitized;
+  }
+
+  return obj;
+}
+
 export async function saveAnalyticsToFirebase(analytics: Analytics): Promise<void> {
   if (!firebaseInitialized) {
     initializeFirebase();
@@ -67,7 +142,11 @@ export async function saveAnalyticsToFirebase(analytics: Analytics): Promise<voi
 
   try {
     const ref = database.ref(`mcp-analytics/${SERVER_NAME}`);
-    await ref.set(analytics);
+    
+    // Sanitize the analytics object before saving
+    const sanitizedAnalytics = sanitizeObject(analytics);
+    
+    await ref.set(sanitizedAnalytics);
     console.log(`📊 Analytics saved to Firebase: ${SERVER_NAME}`);
   } catch (error) {
     console.error('Failed to save to Firebase:', error);
@@ -89,7 +168,11 @@ export async function loadAnalyticsFromFirebase(): Promise<Analytics | null> {
     const snapshot = await ref.get();
     
     if (snapshot.exists()) {
-      const data = snapshot.val() as Analytics;
+      const sanitizedData = snapshot.val();
+      
+      // Desanitize the data when loading
+      const data = desanitizeObject(sanitizedData) as Analytics;
+      
       console.log(`📊 Loaded analytics from Firebase: ${SERVER_NAME}`);
       console.log(`   Total requests: ${data.totalRequests.toLocaleString()}, Tool calls: ${data.totalToolCalls}`);
       return data;
