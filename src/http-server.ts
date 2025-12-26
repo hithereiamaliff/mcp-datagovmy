@@ -669,7 +669,10 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
     <header>
       <h1>🇲🇾 Malaysia Open Data MCP Analytics</h1>
       <p>Real-time usage statistics for the MCP server</p>
-      <span class="uptime-badge" id="uptime">Loading...</span>
+      <div style="margin-top: 12px;">
+        <span class="uptime-badge" id="uptime">Loading...</span>
+        <span class="uptime-badge" style="background: rgba(251, 146, 60, 0.2); color: #fb923c; margin-left: 8px;">🔥 Firebase Connected</span>
+      </div>
     </header>
     
     <div class="stats-grid">
