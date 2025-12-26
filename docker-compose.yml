@@ -12,7 +12,7 @@ services:
       - PORT=8080
       - HOST=0.0.0.0
       - NODE_ENV=production
-      - ANALYTICS_DIR=/data
+      - ANALYTICS_DIR=/app/data
       # Optional API keys - uncomment and set if needed
       # - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
       # - GRABMAPS_API_KEY=${GRABMAPS_API_KEY}
@@ -22,7 +22,8 @@ services:
     env_file:
       - .env
     volumes:
-      - analytics-data:/data
+      - analytics-data:/app/data
+      - ./.credentials:/app/.credentials:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
