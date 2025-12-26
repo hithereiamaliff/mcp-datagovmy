@@ -20,6 +20,30 @@ jobs:
           script: |
             cd /opt/mcp-servers/datagovmy
             git pull origin main
+            
+            # Create credentials directory if it doesn't exist
+            mkdir -p .credentials
+            
+            # Copy shared Firebase credentials from parent directory
+            if [ ! -f .credentials/firebase-service-account.json ]; then
+              cp ../.credentials/firebase-service-account.json .credentials/
+              echo "✅ Firebase credentials copied from parent directory"
+            else
+              echo "✅ Firebase credentials already exist"
+            fi
+            
+            # Rebuild and restart with no cache
             docker compose down
-            docker compose up -d --build
-            echo "Deployment completed at $(date)"
+            docker compose build --no-cache
+            docker compose up -d
+            
+            # Wait for container to start
+            sleep 5
+            
+            # Check if container is running
+            docker compose ps
+            
+            # Show recent logs
+            docker compose logs --tail 30
+            
+            echo "🚀 Deployment completed at $(date)"

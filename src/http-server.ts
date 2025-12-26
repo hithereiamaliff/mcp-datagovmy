@@ -35,11 +35,14 @@ import { registerParquetTools } from './parquet.tools.js';
 import { registerGtfsTools } from './gtfs.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
 
+// Import Firebase analytics
+import { saveAnalyticsToFirebase, loadAnalyticsFromFirebase } from './firebase-analytics.js';
+
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
 
 // ============================================================================
-// Analytics Tracking with File Persistence
+// Analytics Tracking with File Persistence + Firebase
 // ============================================================================
 interface ToolCall {
   tool: string;
@@ -61,8 +64,8 @@ interface Analytics {
   hourlyRequests: Record<string, number>;
 }
 
-// Analytics file path - use /data for Docker volume mount, fallback to local
-const ANALYTICS_DIR = process.env.ANALYTICS_DIR || '/data';
+// Analytics file path - use /app/data for Docker volume mount
+const ANALYTICS_DIR = process.env.ANALYTICS_DIR || '/app/data';
 const ANALYTICS_FILE = path.join(ANALYTICS_DIR, 'analytics.json');
 
 const MAX_RECENT_CALLS = 100;
@@ -82,8 +85,16 @@ const defaultAnalytics: Analytics = {
   hourlyRequests: {},
 };
 
-// Load analytics from file or use defaults
-function loadAnalytics(): Analytics {
+// Load analytics from Firebase first, then fall back to file
+async function loadAnalytics(): Promise<Analytics> {
+  // Try Firebase first
+  console.log('Attempting to load analytics from Firebase...');
+  const firebaseData = await loadAnalyticsFromFirebase();
+  if (firebaseData) {
+    return firebaseData;
+  }
+
+  // Fall back to local file
   try {
     // Ensure directory exists
     if (!fs.existsSync(ANALYTICS_DIR)) {
@@ -93,21 +104,22 @@ function loadAnalytics(): Analytics {
     if (fs.existsSync(ANALYTICS_FILE)) {
       const data = fs.readFileSync(ANALYTICS_FILE, 'utf-8');
       const loaded = JSON.parse(data) as Analytics;
-      console.log(`Loaded analytics from ${ANALYTICS_FILE}:`, {
+      console.log(`📊 Loaded analytics from ${ANALYTICS_FILE}:`, {
         totalRequests: loaded.totalRequests,
         totalToolCalls: loaded.totalToolCalls,
       });
       return loaded;
     }
   } catch (error) {
-    console.error('Failed to load analytics:', error);
+    console.error('Failed to load analytics from file:', error);
   }
   console.log('Starting with fresh analytics');
   return { ...defaultAnalytics };
 }
 
-// Save analytics to file
-function saveAnalytics(): void {
+// Save analytics to both file and Firebase
+async function saveAnalytics(): Promise<void> {
+  // Save to local file (synchronous backup)
   try {
     // Ensure directory exists
     if (!fs.existsSync(ANALYTICS_DIR)) {
@@ -115,14 +127,31 @@ function saveAnalytics(): void {
     }
     
     fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analytics, null, 2));
-    console.log(`Analytics saved to ${ANALYTICS_FILE}`);
+    // Don't log every save to reduce noise
   } catch (error) {
-    console.error('Failed to save analytics:', error);
+    console.error('Failed to save analytics locally:', error);
   }
+
+  // Save to Firebase (async, non-blocking)
+  saveAnalyticsToFirebase(analytics).catch(err => {
+    console.error('Firebase save error:', err);
+  });
 }
 
-// Initialize analytics from file
-const analytics: Analytics = loadAnalytics();
+// Initialize analytics from Firebase/file
+let analytics: Analytics;
+
+// Load analytics asynchronously on startup
+loadAnalytics().then(data => {
+  analytics = data;
+  console.log('✅ Analytics initialized:', {
+    totalRequests: analytics.totalRequests.toLocaleString(),
+    totalToolCalls: analytics.totalToolCalls,
+  });
+}).catch(error => {
+  console.error('Failed to initialize analytics:', error);
+  analytics = { ...defaultAnalytics };
+});
 
 // Periodic save
 setInterval(saveAnalytics, SAVE_INTERVAL_MS);
@@ -718,7 +747,7 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
         document.getElementById('uniqueClients').textContent = data.summary.uniqueClients.toLocaleString();
         
         const tools = Object.entries(data.breakdown.byTool);
-        document.getElementById('topTool').textContent = tools.length > 0 ? tools[0][0].replace('my_', '') : '-';
+        document.getElementById('topTool').textContent = tools.length > 0 ? tools[0][0].replace('datagovmy_', '') : '-';
         
         updateToolChart(data.breakdown.byTool);
         updateHourlyChart(data.hourlyRequests);
@@ -731,7 +760,7 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
     }
     
     function updateToolChart(toolData) {
-      const labels = Object.keys(toolData).map(t => t.replace('my_', ''));
+      const labels = Object.keys(toolData).map(t => t.replace('datagovmy_', ''));
       const values = Object.values(toolData);
       
       if (toolChart) toolChart.destroy();
@@ -851,7 +880,7 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
       container.innerHTML = calls.map(call => \`
         <div class="call-item">
           <div>
-            <span class="call-tool">\${call.tool.replace('my_', '')}</span>
+            <span class="call-tool">\${call.tool.replace('datagovmy_', '')}</span>
             <div class="call-client">\${call.userAgent}</div>
           </div>
           <span class="call-time">\${new Date(call.timestamp).toLocaleTimeString()}</span>
