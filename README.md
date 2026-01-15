@@ -1,5 +1,7 @@
 # Malaysia Open Data MCP
 
+[![smithery badge](https://smithery.ai/badge/@hithereiamaliff/mcp-datagovmy)](https://smithery.ai/server/@hithereiamaliff/mcp-datagovmy)
+
 **MCP Endpoint:** `https://mcp.techmavie.digital/datagovmy/mcp`
 
 **Analytics Dashboard:** [`https://mcp.techmavie.digital/datagovmy/analytics/dashboard`](https://mcp.techmavie.digital/datagovmy/analytics/dashboard)
