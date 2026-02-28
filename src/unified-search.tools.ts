@@ -2,8 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 // Import search functions and types from both modules
-import { searchDatasets, getAllDatasets, DatasetMetadata } from './datacatalogue.tools.js';
-import { searchDashboards, getAllDashboards, DashboardMetadata } from './dashboards.tools.js';
+import { searchDatasets, DatasetMetadata } from './datacatalogue.tools.js';
+import { searchDashboards, DashboardMetadata } from './dashboards.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
 import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
 
@@ -17,33 +17,33 @@ interface SearchResult {
   score: number;
 }
 
-function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'): SearchResult[] {
+async function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'): Promise<SearchResult[]> {
   // Tokenize the query into individual terms
   const queryTerms = tokenizeQuery(query);
-  
+
   // Expand each term with better matching
   const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
-  
+
   // Search in datasets with improved scoring
-  const datasetResults = searchDatasets(query).map((dataset: DatasetMetadata) => {
+  const datasetResults = (await searchDatasets(query)).map((dataset: DatasetMetadata) => {
     const title = dataset.title_en.toLowerCase();
     const id = dataset.id.toLowerCase();
     const description = dataset.description_en.toLowerCase();
-    
+
     // Calculate score based on term matches
     let score = 0;
-    
+
     // Check for exact query match (highest priority)
     if (title.includes(query.toLowerCase())) score += 10;
     if (description.includes(query.toLowerCase())) score += 5;
-    
+
     // Check for individual term matches
     expandedTerms.forEach(term => {
       if (title.includes(term)) score += 3;
       if (id.includes(term)) score += 2;
       if (description.includes(term)) score += 1;
     });
-    
+
     return {
       type: 'dataset' as const,
       id: dataset.id,
@@ -55,30 +55,30 @@ function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'):
   });
 
   // Search in dashboards with improved scoring
-  const dashboardResults = searchDashboards(query).map((dashboard: DashboardMetadata) => {
+  const dashboardResults = (await searchDashboards(query)).map((dashboard: DashboardMetadata) => {
     const name = dashboard.dashboard_name.toLowerCase();
     const route = (dashboard.route || '').toLowerCase();
-    
+
     // Calculate score based on term matches
     let score = 0;
-    
+
     // Check for exact query match (highest priority)
     if (name.includes(query.toLowerCase())) score += 10;
     if (route.includes(query.toLowerCase())) score += 5;
-    
+
     // Check for individual term matches
     expandedTerms.forEach(term => {
       if (name.includes(term)) score += 3;
       if (route.includes(term)) score += 2;
     });
-    
+
     return {
       type: 'dashboard' as const,
       id: dashboard.dashboard_name,
       title: dashboard.dashboard_name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
       description: dashboard.route || '',
-      url: dashboard.route ? 
-        (dashboard.sites?.includes('opendosm') ? `https://open.dosm.gov.my${dashboard.route}` : `https://data.gov.my${dashboard.route}`) 
+      url: dashboard.route ?
+        (dashboard.sites?.includes('opendosm') ? `https://open.dosm.gov.my${dashboard.route}` : `https://data.gov.my${dashboard.route}`)
         : `/dashboard/${dashboard.dashboard_name}`,
       score
     };
@@ -103,8 +103,6 @@ function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'):
 
 /**
  * Check if a query might be referring to a dashboard based on keywords
- * @param query Search query
- * @returns True if the query likely refers to a dashboard
  */
 function isDashboardQuery(query: string): boolean {
   const dashboardKeywords = ['dashboard', 'chart', 'graph', 'visualization', 'visualisation', 'stats', 'statistics'];
@@ -114,8 +112,6 @@ function isDashboardQuery(query: string): boolean {
 
 /**
  * Check if a query might be referring to a dataset based on keywords
- * @param query Search query
- * @returns True if the query likely refers to a dataset
  */
 function isDatasetQuery(query: string): boolean {
   const datasetKeywords = ['dataset', 'data', 'catalogue', 'catalog', 'file', 'download', 'csv', 'excel', 'raw'];
@@ -126,20 +122,16 @@ function isDatasetQuery(query: string): boolean {
 /**
  * Performs an intelligent search that automatically falls back to searching both datasets and dashboards
  * if the primary search returns no results
- * @param query Search query
- * @param prioritizeType Optional type to prioritize in results ('dataset' or 'dashboard')
- * @param limit Maximum number of results to return
- * @returns Search results with fallback if needed
  */
-function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboard', limit: number = 10): {
+async function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboard', limit: number = 10): Promise<{
   results: SearchResult[];
   usedFallback: boolean;
   fallbackType?: 'dataset' | 'dashboard';
   originalType?: 'dataset' | 'dashboard';
-} {
+}> {
   // First try with the prioritized type
-  const initialResults = unifiedSearch(query, prioritizeType);
-  
+  const initialResults = await unifiedSearch(query, prioritizeType);
+
   // If we have enough results, return them
   if (initialResults.length >= 3 || !prioritizeType) {
     return {
@@ -148,17 +140,17 @@ function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboar
       originalType: prioritizeType
     };
   }
-  
+
   // If we have few results, try the opposite type as fallback
   const fallbackType = prioritizeType === 'dataset' ? 'dashboard' : 'dataset';
-  const fallbackResults = unifiedSearch(query, fallbackType);
-  
+  const fallbackResults = await unifiedSearch(query, fallbackType);
+
   // If fallback has results, return combined results with fallback first
   if (fallbackResults.length > 0) {
     const combinedResults = [...fallbackResults, ...initialResults]
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-      
+
     return {
       results: combinedResults,
       usedFallback: true,
@@ -166,7 +158,7 @@ function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboar
       originalType: prioritizeType
     };
   }
-  
+
   // If neither search yielded good results, return the initial results
   return {
     results: initialResults.slice(0, limit),
@@ -195,42 +187,42 @@ export function registerUnifiedSearchTools(server: McpServer) {
           } else if (isDatasetQuery(query)) {
             prioritizeType = 'dataset';
           }
-          
+
           // Special case for domain-specific queries
           const lowerQuery = query.toLowerCase();
-          
+
           // Payment-related terms are more likely to be found in dashboards
-          if (lowerQuery.includes('payment') || 
-              lowerQuery.includes('pay') || 
-              lowerQuery.includes('transaction') || 
-              lowerQuery.includes('electronic') || 
+          if (lowerQuery.includes('payment') ||
+              lowerQuery.includes('pay') ||
+              lowerQuery.includes('transaction') ||
+              lowerQuery.includes('electronic') ||
               lowerQuery.includes('digital')) {
             prioritizeType = 'dashboard';
           }
-          
+
           // Statistics-related terms are more likely to be found in dashboards
-          if (lowerQuery.includes('statistics') || 
-              lowerQuery.includes('stats') || 
-              lowerQuery.includes('chart') || 
+          if (lowerQuery.includes('statistics') ||
+              lowerQuery.includes('stats') ||
+              lowerQuery.includes('chart') ||
               lowerQuery.includes('graph')) {
             prioritizeType = 'dashboard';
           }
         }
 
         // Get intelligent search results with automatic fallback
-        const { 
-          results: searchResults, 
-          usedFallback, 
+        const {
+          results: searchResults,
+          usedFallback,
           fallbackType,
-          originalType 
-        } = intelligentSearch(query, prioritizeType as 'dataset' | 'dashboard' | undefined, limit);
-        
+          originalType
+        } = await intelligentSearch(query, prioritizeType as 'dataset' | 'dashboard' | undefined, limit);
+
         // Group results by type for better presentation
         const groupedResults = {
           datasets: searchResults.filter(r => r.type === 'dataset'),
           dashboards: searchResults.filter(r => r.type === 'dashboard')
         };
-        
+
         return {
           content: [
             {
@@ -243,8 +235,8 @@ export function registerUnifiedSearchTools(server: McpServer) {
                 prioritized_type: originalType || 'none',
                 used_fallback: usedFallback,
                 fallback_type: fallbackType,
-                search_note: usedFallback ? 
-                  `Limited results found in ${originalType} search, automatically included relevant ${fallbackType} results` : 
+                search_note: usedFallback ?
+                  `Limited results found in ${originalType} search, automatically included relevant ${fallbackType} results` :
                   undefined,
                 results: searchResults,
                 grouped_results: groupedResults,

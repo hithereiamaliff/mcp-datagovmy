@@ -2,8 +2,8 @@
   "name": "mcp-datagovmy",
   "version": "1.0.0",
   "description": "Malaysia Open Data MCP Server for Smithery",
-  "main": "./dist/src/index.js",
-  "module": "./dist/src/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "type": "module",
   "files": [
     "dist/**/*",
@@ -15,8 +15,8 @@
   ],
   "scripts": {
     "prestart": "npm run build",
-    "start": "node dist/src/http-server.js",
-    "start:http": "node dist/src/http-server.js",
+    "start": "node dist/http-server.js",
+    "start:http": "node dist/http-server.js",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "prepublishOnly": "npm run build",
     "dev": "npx @smithery/cli@1.2.14 dev",

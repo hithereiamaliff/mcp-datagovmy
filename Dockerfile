@@ -15,13 +15,9 @@ RUN npm ci
 # Copy source code and configuration
 COPY tsconfig.json ./
 COPY src ./src
-COPY scripts ./scripts
 
 # Build TypeScript code
 RUN npm run build
-
-# Copy scripts to dist (needed for runtime imports)
-RUN cp -r scripts dist/
 
 # Remove devDependencies after build
 RUN npm prune --production
@@ -38,4 +34,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Start the HTTP server
-CMD ["node", "dist/src/http-server.js"]
+CMD ["node", "dist/http-server.js"]

@@ -14,8 +14,7 @@
     "baseUrl": "."
   },
   "include": [
-    "src/**/*",
-    "scripts/**/*.d.ts"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",

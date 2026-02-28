@@ -21,8 +21,9 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
   - Increased row limits (up to 500 rows) for comprehensive data retrieval
   - Fallback to metadata estimation when parsing fails
   - Automatic dashboard URL mapping for visualization
-- **Hybrid Data Access Architecture**
-  - Pre-generated static indexes for efficient searching
+- **Live Data Access Architecture**
+  - Real-time index fetching from GitHub (data-gov-my/datagovmy-meta)
+  - In-memory caching with configurable TTL
   - Dynamic API calls for detailed metadata
 - **Multi-Provider Geocoding**
   - Support for Google Maps, GrabMaps, and Nominatim (OpenStreetMap)
@@ -43,16 +44,17 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
 
 ## Architecture
 
-This MCP server implements a hybrid approach for efficient data access:
+This MCP server fetches dataset and dashboard metadata live from the [data-gov-my/datagovmy-meta](https://github.com/data-gov-my/datagovmy-meta) GitHub repository:
 
-- **Pre-generated Static Indexes** for listing and searching datasets and dashboards
-- **Dynamic API Calls** only when specific dataset or dashboard details are requested
+- **Live GitHub Indexes** — On first tool call, fetches all dataset and dashboard metadata via the GitHub Trees API and raw content URLs
+- **In-Memory Caching** — Indexes are cached in memory with a configurable TTL (default: 1 hour), so subsequent requests are fast
+- **Dynamic Detail Fetching** — Individual dataset/dashboard details are fetched on-demand from GitHub raw content
 
 This approach provides several benefits:
-- Faster search and listing operations
-- Reduced API calls to external services
+- Always up-to-date with the latest datasets and dashboards
+- No static data that goes stale
 - Consistent data access patterns
-- Up-to-date detailed information when needed
+- Graceful handling of GitHub downtime
 
 ## Documentation
 
@@ -66,7 +68,7 @@ When integrating this MCP server with AI models:
 1. **Use the unified search tool first** - Always start with `search_all` for any data queries
 2. **Follow the correct URL patterns** - Use `https://data.gov.my/...` and `https://open.dosm.gov.my/...`
 3. **Leverage Parquet file tools** - Use `parse_parquet_file` to access data directly or `get_parquet_info` for metadata
-4. **Use the hybrid approach** - Static indexes for listing/searching, API calls for details
+4. **Live indexes** - Dataset and dashboard indexes are fetched live from GitHub and cached in memory
 5. **Consider dashboard visualization** - For complex data, use the dashboard links provided by `find_dashboard_for_parquet`
 6. **Leverage the multi-provider Malaysian geocoding** - For Malaysian location queries, the system automatically selects the best provider (GrabMaps, Google Maps, or Nominatim) with fallback to Nominatim when no API keys are configured
 
@@ -179,11 +181,24 @@ Auto-refreshes every 30 seconds.
 
 ## Available Tools
 
+### Unified Search
+
+- `search_all`: **Primary search tool** — searches across both datasets and dashboards with intelligent fallback and scoring
+
 ### Data Catalogue
 
 - `list_datasets_catalogue`: Lists available datasets in the Data Catalogue
-- `get_dataset_details`: Gets metadata/details for a specific dataset in the Data Catalogue
 - `search_datasets_catalogue`: Searches datasets in the Data Catalogue
+- `filter_datasets_catalogue`: Filters datasets by frequency, geography, demography, data source, or year range
+- `get_dataset_details`: Gets metadata/details for a specific dataset
+- `get_dataset_filters`: Gets available filter options for datasets
+
+### Dashboards
+
+- `list_dashboards`: Lists all available dashboards
+- `search_dashboards`: Searches dashboards by query
+- `get_dashboard_details`: Gets comprehensive metadata for a dashboard
+- `get_dashboard_charts`: Gets chart configurations for a specific dashboard
 
 ### Department of Statistics Malaysia (DOSM)
 
@@ -216,6 +231,10 @@ Auto-refreshes every 30 seconds.
 - `parse_gtfs_realtime`: Parses GTFS Realtime data (Protocol Buffer format) for vehicle positions
 - `get_transit_routes`: Extracts route information from GTFS data
 - `get_transit_stops`: Extracts stop information from GTFS data, optionally filtered by route
+
+### Flood Warnings
+
+- `get_flood_warnings`: Gets current flood warnings for Malaysia, filterable by state, district, and severity
 
 ### Test
 
@@ -295,22 +314,30 @@ Please be aware of rate limits for the underlying APIs. Excessive requests may b
 
 ## Project Structure
 
-- `src/index.ts`: Main MCP server implementation and tool registration
-- `src/http-server.ts`: Streamable HTTP server for VPS deployment
-- `src/datacatalogue.tools.ts`: Data Catalogue API tools
-- `src/dashboards.tools.ts`: Dashboard access and search tools
-- `src/dosm.tools.ts`: Department of Statistics Malaysia tools
-- `src/unified-search.tools.ts`: Enhanced unified search with tokenization and synonym expansion
-- `src/parquet.tools.ts`: Parquet file parsing and metadata tools
-- `src/weather.tools.ts`: Weather forecast and warnings tools
-- `src/transport.tools.ts`: Transport and GTFS data tools
-- `src/gtfs.tools.ts`: GTFS parsing and analysis tools
-- `src/flood.tools.ts`: Flood warning and monitoring tools
-- `Dockerfile`: Docker configuration for VPS deployment
-- `docker-compose.yml`: Docker Compose configuration
-- `deploy/`: Deployment files (nginx config, deployment guide)
-- `package.json`: Project dependencies and scripts
-- `tsconfig.json`: TypeScript configuration
+```
+src/
+├── index.ts                  # Main MCP server (stdio transport)
+├── http-server.ts            # Streamable HTTP server for VPS deployment
+├── config.ts                 # Centralized configuration (API URLs, cache TTLs, timeouts)
+├── firebase-analytics.ts     # Firebase analytics persistence
+├── datacatalogue.tools.ts    # Data Catalogue search and listing tools
+├── dashboards.tools.ts       # Dashboard search and listing tools
+├── unified-search.tools.ts   # Unified search across datasets and dashboards
+├── dosm.tools.ts             # Department of Statistics Malaysia tools
+├── parquet.tools.ts          # Parquet file parsing and metadata tools
+├── weather.tools.ts          # Weather forecast and warnings tools
+├── transport.tools.ts        # Transport and GTFS data tools
+├── gtfs.tools.ts             # GTFS parsing and geocoding tools
+├── flood.tools.ts            # Flood warning and monitoring tools
+└── utils/
+    ├── github-index.ts       # Live GitHub index fetcher (Trees API + raw content)
+    ├── search.ts             # Shared search utilities (tokenization, synonyms)
+    └── tool-naming.ts        # Tool name prefixing utility
+
+deploy/                       # Deployment files (nginx config, deployment guide)
+Dockerfile                    # Docker configuration for VPS deployment
+docker-compose.yml            # Docker Compose configuration
+```
 
 ## Local Development
 
@@ -369,6 +396,20 @@ curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
 
 This project supports the following configuration options:
 
+**Server Configuration**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | HTTP server port |
+| `API_BASE_URL` | `https://api.data.gov.my` | Malaysia Open Data API base URL |
+| `CACHE_TTL` | `3600000` | Cache time-to-live in ms (default: 1 hour) |
+| `AXIOS_TIMEOUT` | `30000` | HTTP request timeout in ms (default: 30s) |
+| `GITHUB_FETCH_BATCH_SIZE` | `20` | Concurrent file fetches when loading indexes from GitHub |
+| `GH_PAT` | � | Optional GitHub PAT for higher API rate limits (60/hr anonymous vs 5000/hr authenticated). Recommended for production. |
+| `ANALYTICS_RESET_KEY` | — | Secret key required for `/analytics/reset` and `/analytics/import` endpoints |
+| `FIREBASE_DATABASE_URL` | — | Firebase Realtime Database URL for analytics persistence |
+| `FIREBASE_CREDENTIALS_PATH` | `.credentials/firebase-service-account.json` | Path to Firebase service account credentials |
+
 **Geocoding Credentials (Optional. Only for GTFS Transit Features Usage)**:
 
 The following credentials are **only needed if you plan to use the GTFS transit tools** that require geocoding services. Other features like data catalogue access, weather forecasts, and DOSM data do not require these credentials.
@@ -424,3 +465,4 @@ MIT - See [LICENSE](./LICENSE) file for details.
 - [GrabMaps](https://grabmaps.grab.com/solutions/service-apis) for geocoding
 - [Nominatim](https://nominatim.org/) for geocoding
 - [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP framework
+

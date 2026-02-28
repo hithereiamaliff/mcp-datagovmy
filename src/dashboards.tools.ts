@@ -1,132 +1,105 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
-
-// Import the pre-generated dashboards index
-import { DASHBOARDS_INDEX } from '../scripts/dashboards-index.js';
 import { prefixToolName } from './utils/tool-naming.js';
 import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
+import { getDashboards } from './utils/github-index.js';
 import { GITHUB_DASHBOARDS_URL, CACHE_TTL as CONFIG_CACHE_TTL } from './config.js';
 
-// Define dashboard metadata interface
-export interface DashboardMetadata {
-  dashboard_name: string;
-  data_last_updated?: string;
-  data_next_update?: string;
-  route?: string;
-  sites?: string[];
-  required_params?: string[];
-  optional_params?: string[];
-  charts?: Record<string, any>;
-  [key: string]: any;
+// Re-export the interface for consumers
+export type { DashboardMetadata } from './utils/github-index.js';
+import type { DashboardMetadata } from './utils/github-index.js';
+
+interface DashboardChart {
+  name?: string;
+  chart_type?: string;
+  chart_source?: string;
+  data_as_of?: string;
+  api_type?: string;
+  api_params?: unknown;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 // GitHub raw content base URL for fetching specific dashboards
 const GITHUB_RAW_BASE_URL = GITHUB_DASHBOARDS_URL;
 
-// Local dashboards directory path
-const dashboardsDir = path.join(process.cwd(), 'dashboards');
-
-// Check if the dashboards directory exists
-const dashboardsDirExists = fs.existsSync(dashboardsDir);
-
-// Cache for detailed dashboard metadata
+// Cache for detailed dashboard metadata (individual file fetches)
 let detailsCache: Record<string, DashboardMetadata> = {};
-let lastCacheUpdate: number = 0;
+let lastDetailsCacheUpdate: number = 0;
 const CACHE_TTL = CONFIG_CACHE_TTL;
 
-// Get all dashboards from the pre-generated index
-export function getAllDashboards(): DashboardMetadata[] {
-  return DASHBOARDS_INDEX as DashboardMetadata[];
+// Get all dashboards (now async, fetches live from GitHub)
+export async function getAllDashboards(): Promise<DashboardMetadata[]> {
+  return getDashboards();
 }
 
 // Helper function to get dashboard by name
 async function getDashboardByName(name: string): Promise<DashboardMetadata | null> {
-  // First check if we have it in the index
-  const basicInfo = getAllDashboards().find(d => {
-    // Check if dashboard_name matches or if the filename (without .json) matches
-    return d.dashboard_name === name || 
-           (d.route && d.route.replace(/\//g, '_') === name);
-  });
-  
-  if (!basicInfo) {
-    return null; // Dashboard not found in index
-  }
-  
-  // If we have detailed info cached and it's not expired, return it
-  if (detailsCache[name] && Date.now() - lastCacheUpdate < CACHE_TTL) {
+  // Check if we have detailed info cached and it's not expired
+  if (detailsCache[name] && Date.now() - lastDetailsCacheUpdate < CACHE_TTL) {
     return detailsCache[name];
   }
-  
+
+  // Check the index for basic info
+  const dashboards = await getAllDashboards();
+  const basicInfo = dashboards.find(d => {
+    return d.dashboard_name === name ||
+           (d.route && d.route.replace(/\//g, '_') === name);
+  });
+
+  // Always try to fetch full details from GitHub
   try {
-    // Always try to fetch from GitHub first to get the latest data
-    try {
-      const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${name}.json`);
-      const detailedData = response.data as DashboardMetadata;
-      
-      // Cache the detailed data
-      detailsCache[name] = detailedData;
-      lastCacheUpdate = Date.now();
-      
-      console.log(`Successfully fetched ${name} dashboard from GitHub`);
-      return detailedData;
-    } catch (error: any) {
-      console.warn(`Could not fetch ${name} from GitHub, falling back to local file:`, error.message);
-      
-      // If GitHub fetch fails, check if we can fall back to local file
-      if (dashboardsDirExists) {
-        const filePath = path.join(dashboardsDir, `${name}.json`);
-        if (fs.existsSync(filePath)) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const data = JSON.parse(content) as DashboardMetadata;
-          
-          // Cache the detailed data
-          detailsCache[name] = data;
-          lastCacheUpdate = Date.now();
-          
-          console.log(`Using local file for ${name} dashboard`);
-          return data;
-        }
-      } else {
-        console.log('Local dashboards directory does not exist, using only GitHub data');
-      }
-      
-      // If local file doesn't exist either, throw error to be caught by outer catch
-      throw new Error(`Dashboard ${name} not found locally or on GitHub`);
-    }
-  } catch (error) {
-    console.error(`Error getting dashboard ${name}:`, error);
-    // If we can't get detailed data, return the basic info from the index
-    return basicInfo;
+    const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${name}.json`);
+    const detailedData = {
+      ...response.data,
+      dashboard_name: response.data.dashboard_name || name,
+    } as DashboardMetadata;
+
+    detailsCache[name] = detailedData;
+    lastDetailsCacheUpdate = Date.now();
+
+    return detailedData;
+  } catch (error: unknown) {
+    console.warn(`Error fetching dashboard ${name} from GitHub:`, getErrorMessage(error));
+    // Fall back to basic info from index if available
+    return basicInfo || null;
   }
 }
 
 // Helper function to search dashboards with improved matching
-export function searchDashboards(query: string): DashboardMetadata[] {
-  const dashboards = getAllDashboards();
-  
+export async function searchDashboards(query: string): Promise<DashboardMetadata[]> {
+  const dashboards = await getAllDashboards();
+
   // Tokenize the query
   const queryTerms = tokenizeQuery(query);
   const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
-  
+
   // If we have no valid terms after tokenization, fall back to the original query
   if (expandedTerms.length === 0) {
     const lowerCaseQuery = query.toLowerCase();
-    return dashboards.filter(d => 
+    return dashboards.filter(d =>
       d.dashboard_name.toLowerCase().includes(lowerCaseQuery) ||
       (d.route && d.route.toLowerCase().includes(lowerCaseQuery))
     );
   }
-  
+
   // Search using expanded terms
   return dashboards.filter(d => {
     const name = d.dashboard_name.toLowerCase();
     const route = d.route ? d.route.toLowerCase() : '';
-    
-    // Check if any of the expanded terms match
-    return expandedTerms.some(term => 
+
+    return expandedTerms.some(term =>
       name.includes(term) || route.includes(term)
     );
   });
@@ -143,20 +116,19 @@ export function registerDashboardTools(server: McpServer) {
     },
     async ({ limit = 20, offset = 0 }) => {
       try {
-        const allDashboards = getAllDashboards();
+        const allDashboards = await getAllDashboards();
         const paginatedDashboards = allDashboards.slice(offset, offset + limit);
         const total = allDashboards.length;
-        
-        // Create a simplified version of the dashboards for the response
+
         const simplifiedDashboards = paginatedDashboards.map(d => ({
           dashboard_name: d.dashboard_name,
           route: d.route,
           sites: d.sites,
           data_last_updated: d.data_last_updated,
           required_params: d.required_params,
-          chart_count: d.charts ? Object.keys(d.charts).length : 0
+          chart_count: d.charts ? Object.keys(d.charts as Record<string, unknown>).length : 0
         }));
-        
+
         return {
           content: [
             {
@@ -193,7 +165,7 @@ export function registerDashboardTools(server: McpServer) {
       }
     }
   );
-  
+
   // Search dashboards by query
   server.tool(
     prefixToolName('search_dashboards'),
@@ -204,19 +176,18 @@ export function registerDashboardTools(server: McpServer) {
     },
     async ({ query, limit = 20 }) => {
       try {
-        const searchResults = searchDashboards(query);
+        const searchResults = await searchDashboards(query);
         const limitedResults = searchResults.slice(0, limit);
-        
-        // Create a simplified version of the dashboards for the response
+
         const simplifiedResults = limitedResults.map(d => ({
           dashboard_name: d.dashboard_name,
           route: d.route,
           sites: d.sites,
           data_last_updated: d.data_last_updated,
           required_params: d.required_params,
-          chart_count: d.charts ? Object.keys(d.charts).length : 0
+          chart_count: d.charts ? Object.keys(d.charts as Record<string, unknown>).length : 0
         }));
-        
+
         return {
           content: [
             {
@@ -248,7 +219,7 @@ export function registerDashboardTools(server: McpServer) {
       }
     }
   );
-  
+
   // Get dashboard details by name
   server.tool(
     prefixToolName('get_dashboard_details'),
@@ -259,15 +230,14 @@ export function registerDashboardTools(server: McpServer) {
     async ({ name }) => {
       try {
         const dashboard = await getDashboardByName(name);
-        
+
         if (!dashboard) {
-          // Try to find similar dashboards for suggestion
-          const allDashboards = getAllDashboards();
+          const allDashboards = await getAllDashboards();
           const similarDashboards = allDashboards
             .filter(d => d.dashboard_name.includes(name) || name.includes(d.dashboard_name))
             .map(d => ({ dashboard_name: d.dashboard_name, route: d.route }))
             .slice(0, 5);
-          
+
           return {
             content: [
               {
@@ -281,7 +251,7 @@ export function registerDashboardTools(server: McpServer) {
             ],
           };
         }
-        
+
         return {
           content: [
             {
@@ -310,7 +280,7 @@ export function registerDashboardTools(server: McpServer) {
       }
     }
   );
-  
+
   // Get charts for a dashboard
   server.tool(
     prefixToolName('get_dashboard_charts'),
@@ -321,7 +291,7 @@ export function registerDashboardTools(server: McpServer) {
     async ({ name }) => {
       try {
         const dashboard = await getDashboardByName(name);
-        
+
         if (!dashboard) {
           return {
             content: [
@@ -335,7 +305,7 @@ export function registerDashboardTools(server: McpServer) {
             ],
           };
         }
-        
+
         if (!dashboard.charts) {
           return {
             content: [
@@ -349,21 +319,18 @@ export function registerDashboardTools(server: McpServer) {
             ],
           };
         }
-        
-        const charts = dashboard.charts;
-        const chartList = Object.entries(charts).map(([key, chart]) => {
-          const chartObj = chart as any;
-          return {
-            chart_id: key,
-            name: chartObj.name,
-            type: chartObj.chart_type,
-            source: chartObj.chart_source,
-            data_as_of: chartObj.data_as_of,
-            api_type: chartObj.api_type,
-            api_params: chartObj.api_params
-          };
-        });
-        
+
+        const charts = dashboard.charts as Record<string, DashboardChart>;
+        const chartList = Object.entries(charts).map(([key, chart]) => ({
+          chart_id: key,
+          name: chart.name,
+          type: chart.chart_type,
+          source: chart.chart_source,
+          data_as_of: chart.data_as_of,
+          api_type: chart.api_type,
+          api_params: chart.api_params
+        }));
+
         return {
           content: [
             {
