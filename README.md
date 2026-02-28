@@ -46,15 +46,17 @@ Do note that this is **NOT** an official MCP server by the Government of Malaysi
 
 This MCP server fetches dataset and dashboard metadata live from the [data-gov-my/datagovmy-meta](https://github.com/data-gov-my/datagovmy-meta) GitHub repository:
 
-- **Live GitHub Indexes** — On first tool call, fetches all dataset and dashboard metadata via the GitHub Trees API and raw content URLs
-- **In-Memory Caching** — Indexes are cached in memory with a configurable TTL (default: 1 hour), so subsequent requests are fast
+- **Live GitHub Indexes** — Fetches all dataset and dashboard metadata via the GitHub Trees API and raw content URLs
+- **Cache Pre-Warming** — Indexes are fetched immediately on server startup, so the first user request is fast
+- **In-Memory Caching** — Indexes are cached in memory with a configurable TTL (default: 1 hour)
+- **Background Refresh** — When cache expires, stale data is served instantly while a background refresh fetches updated indexes. Users never experience fetch delays after the initial startup.
 - **Dynamic Detail Fetching** — Individual dataset/dashboard details are fetched on-demand from GitHub raw content
 
 This approach provides several benefits:
 - Always up-to-date with the latest datasets and dashboards
 - No static data that goes stale
+- Zero-latency responses (pre-warmed cache + background refresh)
 - Consistent data access patterns
-- Graceful handling of GitHub downtime
 
 ## Documentation
 
@@ -405,7 +407,7 @@ This project supports the following configuration options:
 | `CACHE_TTL` | `3600000` | Cache time-to-live in ms (default: 1 hour) |
 | `AXIOS_TIMEOUT` | `30000` | HTTP request timeout in ms (default: 30s) |
 | `GITHUB_FETCH_BATCH_SIZE` | `20` | Concurrent file fetches when loading indexes from GitHub |
-| `GH_PAT` | � | Optional GitHub PAT for higher API rate limits (60/hr anonymous vs 5000/hr authenticated). Recommended for production. |
+| `GH_PAT` | � | Optional GitHub PAT for higher API rate limits (60/hr anonymous vs 5000/hr authenticated). Recommended for production. |
 | `ANALYTICS_RESET_KEY` | — | Secret key required for `/analytics/reset` and `/analytics/import` endpoints |
 | `FIREBASE_DATABASE_URL` | — | Firebase Realtime Database URL for analytics persistence |
 | `FIREBASE_CREDENTIALS_PATH` | `.credentials/firebase-service-account.json` | Path to Firebase service account credentials |
