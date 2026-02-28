@@ -397,10 +397,9 @@ function estimateDashboardUrl(parquetUrl: string): string {
  * Parse a Parquet file from a URL using hyparquet
  * @param url URL of the Parquet file
  * @param maxRows Maximum number of rows to return
- * @param datasetId Optional dataset ID to fetch metadata
  * @returns Parsed Parquet data
  */
-async function parseParquetFromUrl(url: string, maxRows: number = 500, datasetId?: string): Promise<any> {
+async function parseParquetFromUrl(url: string, maxRows: number = 500): Promise<any> {
   try {
     // Create an async buffer from the URL
     const file = await asyncBufferFromUrl({ url });

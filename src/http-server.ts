@@ -35,6 +35,7 @@ import { registerUnifiedSearchTools } from './unified-search.tools.js';
 import { registerParquetTools } from './parquet.tools.js';
 import { registerGtfsTools } from './gtfs.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
+import { warmCache } from './utils/github-index.js';
 
 // Import Firebase analytics
 import { saveAnalyticsToFirebase, loadAnalyticsFromFirebase } from './firebase-analytics.js';
@@ -973,6 +974,9 @@ mcpServer.server.connect(transport)
       console.log(`  npx @modelcontextprotocol/inspector`);
       console.log(`  Select "Streamable HTTP" and enter: http://localhost:${PORT}/mcp`);
       console.log('');
+
+      // Pre-warm the GitHub index cache so first tool call is fast
+      warmCache();
     });
   })
   .catch((error) => {

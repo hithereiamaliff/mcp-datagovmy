@@ -22,7 +22,7 @@ export function registerDosmTools(server: McpServer) {
         // Use the correct endpoint structure
         const url = `${API_BASE_URL}${OPENDOSM_ENDPOINT}`;
         // If dataset_id is provided, get specific dataset, otherwise list available datasets
-        const params: Record<string, any> = { limit, meta: true };
+        const params: Record<string, any> = { limit, offset, meta: true };
         
         if (dataset_id) {
           params.id = dataset_id;

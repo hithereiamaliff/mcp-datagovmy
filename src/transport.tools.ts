@@ -24,6 +24,7 @@ export function registerTransportTools(server: McpServer) {
         const url = `${API_BASE_URL}${DATA_CATALOGUE_ENDPOINT}`;
         const params: Record<string, any> = { 
           limit,
+          offset,
           meta: true,
           contains: 'gtfs' // Search for GTFS datasets
         };
@@ -104,7 +105,7 @@ export function registerTransportTools(server: McpServer) {
       try {
         // Use the GTFS static endpoint with provider as path parameter
         const url = `${API_BASE_URL}${GTFS_STATIC_ENDPOINT}/${provider}`;
-        const params: Record<string, any> = { meta: true };
+        const params: Record<string, any> = { meta: true, limit, offset };
         
         if (provider === 'prasarana' && !category) {
           return {
@@ -168,7 +169,7 @@ export function registerTransportTools(server: McpServer) {
       try {
         // Use the GTFS realtime endpoint with provider as path parameter
         const url = `${API_BASE_URL}${GTFS_REALTIME_ENDPOINT}/${provider}`;
-        const params: Record<string, any> = { meta: true };
+        const params: Record<string, any> = { meta: true, limit, offset };
         
         if (provider === 'prasarana' && !category) {
           return {

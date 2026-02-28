@@ -188,22 +188,39 @@ async function doFetch(): Promise<void> {
 
 /**
  * Ensure the cache is loaded and fresh. Deduplicates concurrent calls.
+ * If cache exists but is stale, returns immediately and refreshes in background.
  */
 async function ensureLoaded(): Promise<void> {
-  if (lastCacheUpdate > 0 && Date.now() - lastCacheUpdate < CACHE_TTL) {
+  const cacheExists = lastCacheUpdate > 0;
+  const isFresh = cacheExists && Date.now() - lastCacheUpdate < CACHE_TTL;
+
+  if (isFresh) {
     return; // Cache is fresh
   }
 
   if (fetchPromise) {
-    return fetchPromise; // Another fetch is in flight, wait for it
+    // Another fetch is in flight
+    if (cacheExists) return; // Serve stale cache, background fetch will update it
+    return fetchPromise; // No cache yet, must wait
   }
 
   fetchPromise = doFetch();
+
+  if (cacheExists) {
+    // Stale cache exists — refresh in background, don't block the caller
+    fetchPromise.catch(error => {
+      console.error(`Background refresh failed: ${getErrorMessage(error)}`);
+    }).finally(() => {
+      fetchPromise = null;
+    });
+    return;
+  }
+
+  // No cache yet (first load) — must wait for fetch to complete
   try {
     await fetchPromise;
   } catch (error) {
     console.error(`Failed to fetch indexes from GitHub: ${getErrorMessage(error)}`);
-    // Leave existing cache (possibly empty) — callers handle empty gracefully
   } finally {
     fetchPromise = null;
   }
@@ -223,6 +240,15 @@ export async function getDatasets(): Promise<DatasetMetadata[]> {
 export async function getDashboards(): Promise<DashboardMetadata[]> {
   await ensureLoaded();
   return dashboardsCache;
+}
+
+/**
+ * Pre-warm the cache on server startup. Fires and forgets — does not block.
+ */
+export function warmCache(): void {
+  ensureLoaded().catch(error => {
+    console.error(`Cache warm-up failed: ${getErrorMessage(error)}`);
+  });
 }
 
 /**

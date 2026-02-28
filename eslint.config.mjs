@@ -30,6 +30,7 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       'no-console': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   prettier,
