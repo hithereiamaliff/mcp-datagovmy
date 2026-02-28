@@ -2,9 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 import { prefixToolName } from './utils/tool-naming.js';
-
-// Base URL for Malaysia Open Data API
-const API_BASE_URL = 'https://api.data.gov.my';
+import { API_BASE_URL } from './config.js';
 const FLOOD_WARNING_ENDPOINT = '/flood-warning';
 
 /**
@@ -22,18 +20,20 @@ export function registerFloodTools(server: McpServer) {
     },
     async ({ state, district, severity }) => {
       try {
-        // Make a real API call to the Malaysia Open Data API
         const url = `${API_BASE_URL}${FLOOD_WARNING_ENDPOINT}`;
         const params: Record<string, any> = { meta: true };
-        
-        // Only add parameters if they are provided
-        if (state) params.filter = `${state}@state`;
-        if (district) params.filter = `${district}@district`;
-        if (severity) params.filter = `${severity}@severity`;
-        
+
+        // Build filter params - combine multiple filters with comma separation
+        const filters: string[] = [];
+        if (state) filters.push(`${state}@state`);
+        if (district) filters.push(`${district}@district`);
+        if (severity) filters.push(`${severity}@severity`);
+        if (filters.length > 0) {
+          params.filter = filters.join(',');
+        }
+
         const response = await axios.get(url, { params });
-        
-        // Return the actual API response
+
         return {
           content: [
             {
@@ -50,46 +50,7 @@ export function registerFloodTools(server: McpServer) {
         };
       } catch (error) {
         console.error('Error fetching flood warnings:', error);
-        
-        // If the API is unavailable, fall back to mock data for demonstration
-        if (axios.isAxiosError(error) && (error.code === 'ECONNREFUSED' || error.response?.status === 404)) {
-          console.warn('API unavailable, using mock data');
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  message: 'API unavailable, using mock data',
-                  params: { state, district, severity },
-                  endpoint: `${API_BASE_URL}${FLOOD_WARNING_ENDPOINT}`,
-                  warnings: [
-                    {
-                      id: 'mock-flood-1',
-                      state: 'Selangor',
-                      district: 'Klang',
-                      location: 'Taman Sri Muda',
-                      severity: 'warning',
-                      water_level: '3.5m',
-                      timestamp: new Date().toISOString()
-                    },
-                    {
-                      id: 'mock-flood-2',
-                      state: 'Johor',
-                      district: 'Kluang',
-                      location: 'Kampung Contoh',
-                      severity: 'danger',
-                      water_level: '4.2m',
-                      timestamp: new Date().toISOString()
-                    }
-                  ],
-                  note: 'This is mock data as the real API is currently unavailable'
-                }, null, 2),
-              },
-            ],
-          };
-        }
-        
-        // Return error information
+
         return {
           content: [
             {

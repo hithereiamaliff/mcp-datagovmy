@@ -181,9 +181,9 @@ Auto-refreshes every 30 seconds.
 
 ### Data Catalogue
 
-- `list_datasets`: Lists available datasets in the Data Catalogue
-- `get_dataset`: Gets data from a specific dataset in the Data Catalogue
-- `search_datasets`: Searches for datasets in the Data Catalogue
+- `list_datasets_catalogue`: Lists available datasets in the Data Catalogue
+- `get_dataset_details`: Gets metadata/details for a specific dataset in the Data Catalogue
+- `search_datasets_catalogue`: Searches datasets in the Data Catalogue
 
 ### Department of Statistics Malaysia (DOSM)
 
@@ -256,7 +256,7 @@ const result = await tools.get_weather_forecast({
 ### Search Datasets
 
 ```javascript
-const result = await tools.search_datasets({
+const result = await tools.search_datasets_catalogue({
   query: "population",
   limit: 5
 });
@@ -360,7 +360,7 @@ curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
 # Call hello tool
 curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"my_hello","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"datagovmy_hello","arguments":{}}}'
 ```
 
 ## Configuration

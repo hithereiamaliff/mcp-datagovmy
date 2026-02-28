@@ -44,6 +44,7 @@ import { registerUnifiedSearchTools } from './unified-search.tools.js';
 import { registerParquetTools } from './parquet.tools.js';
 import { registerGtfsTools } from './gtfs.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
+import { setRuntimeConfig } from './runtime-config.js';
 
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
@@ -90,31 +91,33 @@ export default function createStatelessServer({
   // Extract config values
   const { googleMapsApiKey, grabMapsApiKey, awsAccessKeyId, awsSecretAccessKey, awsRegion } = _config;
   
-  // Set API keys in process.env if provided in config
+  // Apply runtime credentials from Smithery config (request-independent mode).
+  setRuntimeConfig({
+    googleMapsApiKey,
+    grabMapsApiKey,
+    awsAccessKeyId,
+    awsSecretAccessKey,
+    awsRegion,
+  });
+
+  // Log only the configured providers (without exposing secret values).
   if (googleMapsApiKey) {
-    process.env.GOOGLE_MAPS_API_KEY = googleMapsApiKey;
     console.log('Using Google Maps API key from configuration');
   }
   
-  // Set GrabMaps API key
   if (grabMapsApiKey) {
-    process.env.GRABMAPS_API_KEY = grabMapsApiKey;
     console.log('Using GrabMaps API key from configuration');
   }
   
-  // Set AWS credentials for GrabMaps integration via AWS Location Service
   if (awsAccessKeyId) {
-    process.env.AWS_ACCESS_KEY_ID = awsAccessKeyId;
     console.log('Using AWS Access Key ID from configuration');
   }
   
   if (awsSecretAccessKey) {
-    process.env.AWS_SECRET_ACCESS_KEY = awsSecretAccessKey;
     console.log('Using AWS Secret Access Key from configuration');
   }
   
   if (awsRegion) {
-    process.env.AWS_REGION = awsRegion;
     console.log(`Using AWS Region: ${awsRegion} from configuration`);
   }
   

@@ -2,9 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 import { prefixToolName } from './utils/tool-naming.js';
-
-// API Base URL for Malaysia Open Data API
-const API_BASE_URL = 'https://api.data.gov.my';
+import { API_BASE_URL } from './config.js';
 
 // OpenDOSM endpoint - correct endpoint for Malaysia Open Data API
 const OPENDOSM_ENDPOINT = '/opendosm';

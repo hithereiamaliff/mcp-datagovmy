@@ -21,7 +21,8 @@ import fs from 'fs';
 import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { z } from 'zod';
+import { runWithRequestContext } from './request-context.js';
+import { getRuntimeConfig, type CredentialConfig } from './runtime-config.js';
 
 // Import tool registration functions
 import { registerFloodTools } from './flood.tools.js';
@@ -138,19 +139,18 @@ async function saveAnalytics(): Promise<void> {
   });
 }
 
-// Initialize analytics from Firebase/file
-let analytics: Analytics;
+// Initialize analytics with defaults immediately to prevent race condition
+let analytics: Analytics = { ...defaultAnalytics };
 
-// Load analytics asynchronously on startup
+// Load persisted analytics asynchronously and merge on startup
 loadAnalytics().then(data => {
   analytics = data;
-  console.log('✅ Analytics initialized:', {
+  console.log('Analytics initialized:', {
     totalRequests: analytics.totalRequests.toLocaleString(),
     totalToolCalls: analytics.totalToolCalls,
   });
 }).catch(error => {
   console.error('Failed to initialize analytics:', error);
-  analytics = { ...defaultAnalytics };
 });
 
 // Periodic save
@@ -228,65 +228,34 @@ function getUptime(): string {
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Default API keys from environment
-const DEFAULT_GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const DEFAULT_GRABMAPS_API_KEY = process.env.GRABMAPS_API_KEY;
-const DEFAULT_AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
-const DEFAULT_AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
-const DEFAULT_AWS_REGION = process.env.AWS_REGION || 'ap-southeast-5';
-
 /**
- * Extract API keys from request query params or headers
- * User-provided keys take priority over default environment keys
+ * Extract request-scoped API keys from headers or query params.
+ * User-provided keys override configured defaults for this request only.
  */
-function extractApiKeys(req: Request): void {
-  // Google Maps API key
-  const googleMapsKey = req.query.googleMapsApiKey as string || 
-                        req.headers['x-google-maps-api-key'] as string;
-  if (googleMapsKey) {
-    process.env.GOOGLE_MAPS_API_KEY = googleMapsKey;
-    console.log('Using user-provided Google Maps API key');
-  } else if (DEFAULT_GOOGLE_MAPS_API_KEY) {
-    process.env.GOOGLE_MAPS_API_KEY = DEFAULT_GOOGLE_MAPS_API_KEY;
-  }
-
-  // GrabMaps API key
-  const grabMapsKey = req.query.grabMapsApiKey as string || 
-                      req.headers['x-grabmaps-api-key'] as string;
-  if (grabMapsKey) {
-    process.env.GRABMAPS_API_KEY = grabMapsKey;
-    console.log('Using user-provided GrabMaps API key');
-  } else if (DEFAULT_GRABMAPS_API_KEY) {
-    process.env.GRABMAPS_API_KEY = DEFAULT_GRABMAPS_API_KEY;
-  }
-
-  // AWS credentials (for AWS Location Service / GrabMaps integration)
-  const awsAccessKeyId = req.query.awsAccessKeyId as string || 
-                         req.headers['x-aws-access-key-id'] as string;
-  if (awsAccessKeyId) {
-    process.env.AWS_ACCESS_KEY_ID = awsAccessKeyId;
-    console.log('Using user-provided AWS Access Key ID');
-  } else if (DEFAULT_AWS_ACCESS_KEY_ID) {
-    process.env.AWS_ACCESS_KEY_ID = DEFAULT_AWS_ACCESS_KEY_ID;
-  }
-
-  const awsSecretAccessKey = req.query.awsSecretAccessKey as string || 
-                             req.headers['x-aws-secret-access-key'] as string;
-  if (awsSecretAccessKey) {
-    process.env.AWS_SECRET_ACCESS_KEY = awsSecretAccessKey;
-    console.log('Using user-provided AWS Secret Access Key');
-  } else if (DEFAULT_AWS_SECRET_ACCESS_KEY) {
-    process.env.AWS_SECRET_ACCESS_KEY = DEFAULT_AWS_SECRET_ACCESS_KEY;
-  }
-
-  const awsRegion = req.query.awsRegion as string || 
-                    req.headers['x-aws-region'] as string;
-  if (awsRegion) {
-    process.env.AWS_REGION = awsRegion;
-    console.log(`Using user-provided AWS Region: ${awsRegion}`);
-  } else {
-    process.env.AWS_REGION = DEFAULT_AWS_REGION;
-  }
+function extractApiKeys(req: Request): CredentialConfig {
+  const defaults = getRuntimeConfig();
+  return {
+    googleMapsApiKey:
+      (req.headers['x-google-maps-api-key'] as string) ||
+      (req.query.googleMapsApiKey as string) ||
+      defaults.googleMapsApiKey,
+    grabMapsApiKey:
+      (req.headers['x-grabmaps-api-key'] as string) ||
+      (req.query.grabMapsApiKey as string) ||
+      defaults.grabMapsApiKey,
+    awsAccessKeyId:
+      (req.headers['x-aws-access-key-id'] as string) ||
+      (req.query.awsAccessKeyId as string) ||
+      defaults.awsAccessKeyId,
+    awsSecretAccessKey:
+      (req.headers['x-aws-secret-access-key'] as string) ||
+      (req.query.awsSecretAccessKey as string) ||
+      defaults.awsSecretAccessKey,
+    awsRegion:
+      (req.headers['x-aws-region'] as string) ||
+      (req.query.awsRegion as string) ||
+      defaults.awsRegion,
+  };
 }
 
 // Create MCP server
@@ -339,7 +308,7 @@ const app = express();
 app.use(cors({
   origin: '*', // Allow all origins for MCP clients
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Mcp-Session-Id'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Mcp-Session-Id', 'X-Google-Maps-Api-Key', 'X-GrabMaps-Api-Key', 'X-AWS-Access-Key-Id', 'X-AWS-Secret-Access-Key', 'X-AWS-Region'],
   exposedHeaders: ['Mcp-Session-Id'],
 }));
 
@@ -426,7 +395,7 @@ app.get('/analytics/tools', (req: Request, res: Response) => {
 // Analytics endpoint - reset (protected by query param)
 app.post('/analytics/reset', (req: Request, res: Response) => {
   const resetKey = req.query.key;
-  if (resetKey !== process.env.ANALYTICS_RESET_KEY && resetKey !== 'malaysia-opendata-2024') {
+  if (!process.env.ANALYTICS_RESET_KEY || resetKey !== process.env.ANALYTICS_RESET_KEY) {
     res.status(403).json({ error: 'Invalid reset key' });
     return;
   }
@@ -449,7 +418,7 @@ app.post('/analytics/reset', (req: Request, res: Response) => {
 // Analytics endpoint - import/restore (protected by query param)
 app.post('/analytics/import', (req: Request, res: Response) => {
   const importKey = req.query.key;
-  if (importKey !== process.env.ANALYTICS_RESET_KEY && importKey !== 'malaysia-opendata-2024') {
+  if (!process.env.ANALYTICS_RESET_KEY || importKey !== process.env.ANALYTICS_RESET_KEY) {
     res.status(403).json({ error: 'Invalid import key' });
     return;
   }
@@ -913,8 +882,8 @@ app.all('/mcp', async (req: Request, res: Response) => {
     // Track request
     trackRequest(req, '/mcp');
     
-    // Extract API keys from query params or headers (user's keys take priority)
-    extractApiKeys(req);
+    // Build request-scoped credentials (user keys override defaults)
+    const requestCredentials = extractApiKeys(req);
     
     // Track tool calls from request body
     if (req.body && req.body.method === 'tools/call' && req.body.params?.name) {
@@ -926,12 +895,15 @@ app.all('/mcp', async (req: Request, res: Response) => {
       method: req.method,
       path: req.path,
       mcpMethod: req.body?.method,
-      hasGoogleMapsKey: !!process.env.GOOGLE_MAPS_API_KEY,
-      hasGrabMapsKey: !!process.env.GRABMAPS_API_KEY,
-      hasAwsCredentials: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
+      hasGoogleMapsKey: !!requestCredentials.googleMapsApiKey,
+      hasGrabMapsKey: !!requestCredentials.grabMapsApiKey,
+      hasAwsCredentials: !!(requestCredentials.awsAccessKeyId && requestCredentials.awsSecretAccessKey),
     });
-    
-    await transport.handleRequest(req, res, req.body);
+
+    await runWithRequestContext(
+      { credentials: requestCredentials },
+      async () => transport.handleRequest(req, res, req.body)
+    );
   } catch (error) {
     console.error('MCP request error:', error);
     if (!res.headersSent) {
@@ -1008,13 +980,4 @@ mcpServer.server.connect(transport)
     process.exit(1);
   });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('Received SIGINT, shutting down gracefully...');
-  process.exit(0);
-});
+// Note: SIGTERM/SIGINT handlers are registered above (lines ~160-170) to save analytics on exit

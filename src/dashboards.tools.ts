@@ -7,6 +7,8 @@ import path from 'path';
 // Import the pre-generated dashboards index
 import { DASHBOARDS_INDEX } from '../scripts/dashboards-index.js';
 import { prefixToolName } from './utils/tool-naming.js';
+import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
+import { GITHUB_DASHBOARDS_URL, CACHE_TTL as CONFIG_CACHE_TTL } from './config.js';
 
 // Define dashboard metadata interface
 export interface DashboardMetadata {
@@ -22,7 +24,7 @@ export interface DashboardMetadata {
 }
 
 // GitHub raw content base URL for fetching specific dashboards
-const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com/data-gov-my/datagovmy-meta/main/dashboards';
+const GITHUB_RAW_BASE_URL = GITHUB_DASHBOARDS_URL;
 
 // Local dashboards directory path
 const dashboardsDir = path.join(process.cwd(), 'dashboards');
@@ -33,7 +35,7 @@ const dashboardsDirExists = fs.existsSync(dashboardsDir);
 // Cache for detailed dashboard metadata
 let detailsCache: Record<string, DashboardMetadata> = {};
 let lastCacheUpdate: number = 0;
-const CACHE_TTL = 3600000; // 1 hour in milliseconds
+const CACHE_TTL = CONFIG_CACHE_TTL;
 
 // Get all dashboards from the pre-generated index
 export function getAllDashboards(): DashboardMetadata[] {
@@ -99,67 +101,6 @@ async function getDashboardByName(name: string): Promise<DashboardMetadata | nul
     // If we can't get detailed data, return the basic info from the index
     return basicInfo;
   }
-}
-
-// Helper function to tokenize a query into individual terms
-function tokenizeQuery(query: string): string[] {
-  // Remove special characters and split by spaces
-  return query.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(term => term.length > 0);
-}
-
-// Helper function to normalize terms by removing common prefixes and handling variations
-function normalizeTerm(term: string): string[] {
-  // Remove hyphens and normalize spacing
-  let normalized = term.replace(/-/g, '').trim();
-  
-  // Handle common prefixes/variations
-  if (normalized.startsWith('e') && normalized.length > 1) {
-    // e.g., 'epayment' -> also try 'payment'
-    return [normalized, normalized.substring(1)];
-  }
-  
-  return [normalized];
-}
-
-// A small set of common synonyms for frequently used terms
-const COMMON_SYNONYMS: Record<string, string[]> = {
-  'payment': ['payment', 'pay', 'transaction'],
-  'electronic': ['electronic', 'digital', 'online', 'cashless'],
-  'statistics': ['statistics', 'stats', 'data', 'figures', 'numbers'],
-  'dashboard': ['dashboard', 'visualization', 'chart', 'graph'],
-  'dataset': ['dataset', 'data set', 'database', 'data'],
-};
-
-// Helper function to expand search terms for better matching
-function expandSearchTerms(term: string): string[] {
-  const normalizedTerm = term.toLowerCase().trim();
-  
-  // Start with the original term
-  let expanded = [normalizedTerm];
-  
-  // Add normalized variations
-  expanded = expanded.concat(normalizeTerm(normalizedTerm));
-  
-  // Check for common synonyms
-  for (const [key, synonyms] of Object.entries(COMMON_SYNONYMS)) {
-    if (normalizedTerm === key || synonyms.includes(normalizedTerm)) {
-      expanded = expanded.concat(synonyms);
-      break;
-    }
-  }
-  
-  // Basic stemming for plurals
-  if (normalizedTerm.endsWith('s')) {
-    expanded.push(normalizedTerm.slice(0, -1)); // Remove trailing 's'
-  } else {
-    expanded.push(normalizedTerm + 's'); // Add trailing 's'
-  }
-  
-  // Remove duplicates and return
-  return [...new Set(expanded)];
 }
 
 // Helper function to search dashboards with improved matching

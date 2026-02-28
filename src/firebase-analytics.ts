@@ -32,10 +32,17 @@ function initializeFirebase() {
   if (firebaseInitialized) return;
 
   try {
-    const credentialsPath = path.join(process.cwd(), '.credentials', 'firebase-service-account.json');
+    const credentialsPath = process.env.FIREBASE_CREDENTIALS_PATH || path.join(process.cwd(), '.credentials', 'firebase-service-account.json');
+    const databaseURL = process.env.FIREBASE_DATABASE_URL;
     
     if (!fs.existsSync(credentialsPath)) {
       console.warn(`⚠️  Firebase credentials not found at ${credentialsPath}`);
+      console.warn('   Analytics will only be saved locally');
+      return;
+    }
+
+    if (!databaseURL) {
+      console.warn('⚠️  FIREBASE_DATABASE_URL is not set');
       console.warn('   Analytics will only be saved locally');
       return;
     }
@@ -44,7 +51,7 @@ function initializeFirebase() {
 
     initializeApp({
       credential: cert(serviceAccount),
-      databaseURL: 'https://mcp-analytics-49b45-default-rtdb.asia-southeast1.firebasedatabase.app'
+      databaseURL
     });
 
     database = getDatabase();

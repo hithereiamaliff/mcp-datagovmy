@@ -7,9 +7,9 @@ import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import { prefixToolName } from './utils/tool-naming.js';
 import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
-
-// API Base URL for Malaysia Open Data API
-const API_BASE_URL = 'https://api.data.gov.my';
+import { API_BASE_URL } from './config.js';
+import { getRequestCredentials } from './request-context.js';
+import { getRuntimeConfig } from './runtime-config.js';
 
 // GTFS endpoints
 const GTFS_STATIC_ENDPOINT = '/gtfs-static';
@@ -29,27 +29,13 @@ const COMBINED_ERROR_NOTE = `${ERROR_404_NOTE} ${REALTIME_DATA_NOTE}`;
 const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
 
-// Google Maps API Key from environment variable
-// We'll determine this dynamically in the geocodeLocation function to ensure
-// it picks up any changes made after server initialization
-let googleMapsApiKeyLastChecked = 0;
-let cachedGoogleMapsApiKey = '';
+function getCredentialConfig() {
+  return getRequestCredentials() || getRuntimeConfig();
+}
 
+// Google Maps API key from request context or runtime config
 function getGoogleMapsApiKey(): string {
-  // Only check once per minute to avoid excessive environment variable lookups
-  const now = Date.now();
-  if (now - googleMapsApiKeyLastChecked > 60000) {
-    cachedGoogleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || '';
-    googleMapsApiKeyLastChecked = now;
-    
-    if (!cachedGoogleMapsApiKey) {
-      console.log('No Google Maps API key found. Using Nominatim API for geocoding as fallback.');
-    } else {
-      console.log('Using Google Maps API for geocoding.');
-    }
-  }
-  
-  return cachedGoogleMapsApiKey;
+  return getCredentialConfig().googleMapsApiKey;
 }
 
 // Valid providers and categories
@@ -291,25 +277,9 @@ function enhanceLocationQuery(query: string): string {
   return query;
 }
 
-// Get GrabMaps API key from environment variable
-let grabMapsApiKeyLastChecked = 0;
-let cachedGrabMapsApiKey = '';
-
+// GrabMaps API key from request context or runtime config
 function getGrabMapsApiKey(): string {
-  // Only check once per minute to avoid excessive environment variable lookups
-  const now = Date.now();
-  if (now - grabMapsApiKeyLastChecked > 60000) {
-    cachedGrabMapsApiKey = process.env.GRABMAPS_API_KEY || '';
-    grabMapsApiKeyLastChecked = now;
-    
-    if (!cachedGrabMapsApiKey) {
-      console.log('No GrabMaps API key found.');
-    } else {
-      console.log('GrabMaps API key available.');
-    }
-  }
-  
-  return cachedGrabMapsApiKey;
+  return getCredentialConfig().grabMapsApiKey;
 }
 
 /**
@@ -447,11 +417,13 @@ async function geocodeWithGrabMaps(enhancedQuery: string, originalQuery: string,
   console.log(`Attempting to geocode with GrabMaps via AWS Location Service: "${enhancedQuery}"`);
   
   try {
+    const credentials = getCredentialConfig();
+
     // Check for required AWS credentials
-    const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-    const awsRegion = process.env.AWS_REGION || 'ap-southeast-5';
-    const grabMapsApiKey = process.env.GRABMAPS_API_KEY || apiKey;
+    const accessKeyId = credentials.awsAccessKeyId;
+    const secretAccessKey = credentials.awsSecretAccessKey;
+    const awsRegion = credentials.awsRegion || 'ap-southeast-5';
+    const grabMapsApiKey = credentials.grabMapsApiKey || apiKey;
     
     if (!accessKeyId) {
       console.error('AWS Access Key ID not found in environment variables');

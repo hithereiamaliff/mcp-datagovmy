@@ -4,12 +4,11 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { prefixToolName } from './utils/tool-naming.js';
+import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
+import { GITHUB_RAW_BASE_URL, CACHE_TTL as CONFIG_CACHE_TTL } from './config.js';
 
 // Import the pre-generated catalogue index
 import { CATALOGUE_INDEX } from '../scripts/catalogue-index.js';
-
-// GitHub raw content base URL for fetching specific datasets
-const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com/data-gov-my/datagovmy-meta/main/data-catalogue';
 
 // Local data-catalogue directory path
 const dataCatalogueDir = path.join(process.cwd(), 'data-catalogue');
@@ -37,7 +36,7 @@ export interface DatasetMetadata {
 let detailsCache: Record<string, DatasetMetadata> = {};
 let filtersCache: any = null;
 let lastCacheUpdate: number = 0;
-const CACHE_TTL = 3600000; // 1 hour in milliseconds
+const CACHE_TTL = CONFIG_CACHE_TTL;
 
 // Helper function to get all datasets
 export function getAllDatasets(): DatasetMetadata[] {
@@ -93,67 +92,6 @@ async function getDatasetById(id: string): Promise<DatasetMetadata | null> {
     // If we can't get detailed data, return the basic info from the index
     return basicInfo;
   }
-}
-
-// Helper function to tokenize a query into individual terms
-function tokenizeQuery(query: string): string[] {
-  // Remove special characters and split by spaces
-  return query.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(term => term.length > 0);
-}
-
-// Helper function to normalize terms by removing common prefixes and handling variations
-function normalizeTerm(term: string): string[] {
-  // Remove hyphens and normalize spacing
-  let normalized = term.replace(/-/g, '').trim();
-  
-  // Handle common prefixes/variations
-  if (normalized.startsWith('e') && normalized.length > 1) {
-    // e.g., 'epayment' -> also try 'payment'
-    return [normalized, normalized.substring(1)];
-  }
-  
-  return [normalized];
-}
-
-// A small set of common synonyms for frequently used terms
-const COMMON_SYNONYMS: Record<string, string[]> = {
-  'payment': ['payment', 'pay', 'transaction'],
-  'electronic': ['electronic', 'digital', 'online', 'cashless'],
-  'statistics': ['statistics', 'stats', 'data', 'figures', 'numbers'],
-  'dashboard': ['dashboard', 'visualization', 'chart', 'graph'],
-  'dataset': ['dataset', 'data set', 'database', 'data'],
-};
-
-// Helper function to expand search terms for better matching
-function expandSearchTerms(term: string): string[] {
-  const normalizedTerm = term.toLowerCase().trim();
-  
-  // Start with the original term
-  let expanded = [normalizedTerm];
-  
-  // Add normalized variations
-  expanded = expanded.concat(normalizeTerm(normalizedTerm));
-  
-  // Check for common synonyms
-  for (const [key, synonyms] of Object.entries(COMMON_SYNONYMS)) {
-    if (normalizedTerm === key || synonyms.includes(normalizedTerm)) {
-      expanded = expanded.concat(synonyms);
-      break;
-    }
-  }
-  
-  // Basic stemming for plurals
-  if (normalizedTerm.endsWith('s')) {
-    expanded.push(normalizedTerm.slice(0, -1)); // Remove trailing 's'
-  } else {
-    expanded.push(normalizedTerm + 's'); // Add trailing 's'
-  }
-  
-  // Remove duplicates and return
-  return [...new Set(expanded)];
 }
 
 // Helper function to search datasets with improved matching

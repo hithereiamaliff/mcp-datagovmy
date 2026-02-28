@@ -19,7 +19,7 @@ https://mcp.techmavie.digital/datagovmy/mcp
     ↓
 Nginx (SSL termination + reverse proxy)
     ↓ HTTP
-Docker Container (port 8082 → 8080)
+Docker Container (port 8083 → 8080)
     ↓
 Malaysia Open Data APIs (data.gov.my, OpenDOSM, etc.)
 ```
@@ -77,7 +77,7 @@ docker compose logs -f
 ### 7. Test the health endpoint
 
 ```bash
-curl http://localhost:8082/health
+curl http://localhost:8083/health
 ```
 
 ### 8. Configure Nginx
@@ -275,7 +275,7 @@ curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
 # Call hello tool
 curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"my_hello","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"datagovmy_hello","arguments":{}}}'
 ```
 
 ## Security Notes

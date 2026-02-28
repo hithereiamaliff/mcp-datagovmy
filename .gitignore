@@ -10,7 +10,6 @@ yarn-debug.log
 .env.development.local
 .env.test.local
 .env.production.local
-.env.example
 
 # Build output
 dist/
@@ -26,6 +25,7 @@ test/
 # Editor directories and files
 .idea/
 .vscode/
+.claude/
 *.suo
 *.ntvs*
 *.njsproj

@@ -5,7 +5,6 @@ src/
 .vscode/
 .github/
 .env
-.env.example
 .eslintrc.json
 .prettierrc
 tsconfig.json

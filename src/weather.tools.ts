@@ -2,9 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 import { prefixToolName } from './utils/tool-naming.js';
-
-// API Base URL for Malaysia Open Data API
-const API_BASE_URL = 'https://api.data.gov.my';
+import { API_BASE_URL } from './config.js';
 // Weather API endpoints - using realtime API endpoints
 const WEATHER_FORECAST_ENDPOINT = '/weather/forecast';
 const WEATHER_WARNING_ENDPOINT = '/weather/warning';
@@ -69,12 +67,15 @@ export function registerWeatherTools(server: McpServer) {
         const url = `${API_BASE_URL}${WEATHER_WARNING_ENDPOINT}`;
         const params: Record<string, any> = { limit: 100 };
         
+        const containsFilters: string[] = [];
         if (type && type !== 'all') {
-          params.contains = `${type}@warning_issue__title_en`;
+          containsFilters.push(`${type}@warning_issue__title_en`);
         }
-        
         if (location) {
-          params.contains = `${location}@text_en`;
+          containsFilters.push(`${location}@text_en`);
+        }
+        if (containsFilters.length > 0) {
+          params.contains = containsFilters.join(',');
         }
 
         const response = await axios.get(url, { params });
