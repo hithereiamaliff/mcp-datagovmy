@@ -44,83 +44,28 @@ import { registerUnifiedSearchTools } from './unified-search.tools.js';
 import { registerParquetTools } from './parquet.tools.js';
 import { registerGtfsTools } from './gtfs.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
-import { setRuntimeConfig } from './runtime-config.js';
 
 // Type definition for tool registration functions
 type ToolRegistrationFn = (server: McpServer) => void;
 
-// Define the config schema
-export const configSchema = z.object({
-  // Optional Google Maps API key for geocoding
-  googleMapsApiKey: z.string()
-    .optional()
-    .describe('Google Maps API key for improved location detection. If not provided, will use OpenStreetMap Nominatim API as fallback.'),
-  
-  // Optional GrabMaps API key for Southeast Asia geocoding
-  grabMapsApiKey: z.string()
-    .optional()
-    .describe('GrabMaps API key for improved geocoding in Southeast Asia.'),
-  
-  // Optional AWS credentials for GrabMaps integration via AWS Location Service
-  awsRegion: z.string()
-    .optional()
-    .describe('AWS Region where your Place Index is created. Default: ap-southeast-5 (Malaysia)'),
-  
-  awsAccessKeyId: z.string()
-    .optional()
-    .describe('AWS Access Key ID with permissions to access AWS Location Service.'),
-  
-  awsSecretAccessKey: z.string()
-    .optional()
-    .describe('AWS Secret Access Key with permissions to access AWS Location Service.'),
-});
+// Define the config schema (no credentials required)
+export const configSchema = z.object({});
 
 /**
  * Creates a stateless MCP server for Malaysia Open Data API
  */
 export default function createStatelessServer({
-  config: _config,
+  config = {},
 }: {
-  config: z.infer<typeof configSchema>;
-}) {
+  config?: z.infer<typeof configSchema>;
+} = {}) {
+  void config;
+
   const server = new McpServer({
     name: 'Malaysia Open Data MCP Server',
     version: '1.0.0',
   });
 
-  // Extract config values
-  const { googleMapsApiKey, grabMapsApiKey, awsAccessKeyId, awsSecretAccessKey, awsRegion } = _config;
-  
-  // Apply runtime credentials from Smithery config (request-independent mode).
-  setRuntimeConfig({
-    googleMapsApiKey,
-    grabMapsApiKey,
-    awsAccessKeyId,
-    awsSecretAccessKey,
-    awsRegion,
-  });
-
-  // Log only the configured providers (without exposing secret values).
-  if (googleMapsApiKey) {
-    console.log('Using Google Maps API key from configuration');
-  }
-  
-  if (grabMapsApiKey) {
-    console.log('Using GrabMaps API key from configuration');
-  }
-  
-  if (awsAccessKeyId) {
-    console.log('Using AWS Access Key ID from configuration');
-  }
-  
-  if (awsSecretAccessKey) {
-    console.log('Using AWS Secret Access Key from configuration');
-  }
-  
-  if (awsRegion) {
-    console.log(`Using AWS Region: ${awsRegion} from configuration`);
-  }
-  
   // Register all tool sets
   const toolSets: ToolRegistrationFn[] = [
     registerDataCatalogueTools,

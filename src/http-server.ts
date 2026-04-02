@@ -21,8 +21,6 @@ import fs from 'fs';
 import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { runWithRequestContext } from './request-context.js';
-import { getRuntimeConfig, type CredentialConfig } from './runtime-config.js';
 
 // Import tool registration functions
 import { registerFloodTools } from './flood.tools.js';
@@ -229,35 +227,7 @@ function getUptime(): string {
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
-/**
- * Extract request-scoped API keys from headers or query params.
- * User-provided keys override configured defaults for this request only.
- */
-function extractApiKeys(req: Request): CredentialConfig {
-  const defaults = getRuntimeConfig();
-  return {
-    googleMapsApiKey:
-      (req.headers['x-google-maps-api-key'] as string) ||
-      (req.query.googleMapsApiKey as string) ||
-      defaults.googleMapsApiKey,
-    grabMapsApiKey:
-      (req.headers['x-grabmaps-api-key'] as string) ||
-      (req.query.grabMapsApiKey as string) ||
-      defaults.grabMapsApiKey,
-    awsAccessKeyId:
-      (req.headers['x-aws-access-key-id'] as string) ||
-      (req.query.awsAccessKeyId as string) ||
-      defaults.awsAccessKeyId,
-    awsSecretAccessKey:
-      (req.headers['x-aws-secret-access-key'] as string) ||
-      (req.query.awsSecretAccessKey as string) ||
-      defaults.awsSecretAccessKey,
-    awsRegion:
-      (req.headers['x-aws-region'] as string) ||
-      (req.query.awsRegion as string) ||
-      defaults.awsRegion,
-  };
-}
+// No external API keys needed — geocoding uses Nominatim (no credentials required)
 
 // Create MCP server
 const mcpServer = new McpServer({
@@ -309,7 +279,7 @@ const app = express();
 app.use(cors({
   origin: '*', // Allow all origins for MCP clients
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Mcp-Session-Id', 'X-Google-Maps-Api-Key', 'X-GrabMaps-Api-Key', 'X-AWS-Access-Key-Id', 'X-AWS-Secret-Access-Key', 'X-AWS-Region'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Mcp-Session-Id'],
   exposedHeaders: ['Mcp-Session-Id'],
 }));
 
@@ -882,29 +852,20 @@ app.all('/mcp', async (req: Request, res: Response) => {
   try {
     // Track request
     trackRequest(req, '/mcp');
-    
-    // Build request-scoped credentials (user keys override defaults)
-    const requestCredentials = extractApiKeys(req);
-    
+
     // Track tool calls from request body
     if (req.body && req.body.method === 'tools/call' && req.body.params?.name) {
       trackToolCall(req.body.params.name, req);
     }
-    
+
     // Log request info
     console.log('Received MCP request:', {
       method: req.method,
       path: req.path,
       mcpMethod: req.body?.method,
-      hasGoogleMapsKey: !!requestCredentials.googleMapsApiKey,
-      hasGrabMapsKey: !!requestCredentials.grabMapsApiKey,
-      hasAwsCredentials: !!(requestCredentials.awsAccessKeyId && requestCredentials.awsSecretAccessKey),
     });
 
-    await runWithRequestContext(
-      { credentials: requestCredentials },
-      async () => transport.handleRequest(req, res, req.body)
-    );
+    await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error('MCP request error:', error);
     if (!res.headersSent) {
@@ -935,25 +896,7 @@ app.get('/', (req: Request, res: Response) => {
       analyticsTools: '/analytics/tools',
       analyticsDashboard: '/analytics/dashboard',
     },
-    apiKeySupport: {
-      description: 'You can provide your own API keys via URL query params or headers',
-      queryParams: {
-        googleMapsApiKey: 'Google Maps API key for geocoding',
-        grabMapsApiKey: 'GrabMaps API key for Southeast Asia geocoding',
-        awsAccessKeyId: 'AWS Access Key ID for AWS Location Service',
-        awsSecretAccessKey: 'AWS Secret Access Key',
-        awsRegion: 'AWS Region (default: ap-southeast-5)',
-      },
-      headers: {
-        'X-Google-Maps-Api-Key': 'Google Maps API key',
-        'X-GrabMaps-Api-Key': 'GrabMaps API key',
-        'X-AWS-Access-Key-Id': 'AWS Access Key ID',
-        'X-AWS-Secret-Access-Key': 'AWS Secret Access Key',
-        'X-AWS-Region': 'AWS Region',
-      },
-      example: '/mcp?googleMapsApiKey=YOUR_KEY',
-      important: 'GrabMaps requires ALL FOUR params: grabMapsApiKey + awsAccessKeyId + awsSecretAccessKey + awsRegion. Without any one of these, GrabMaps will not work.',
-    },
+    note: 'No API keys or credentials required. Geocoding uses Nominatim (OpenStreetMap).',
     documentation: 'https://github.com/hithereiamaliff/mcp-datagovmy',
   });
 });

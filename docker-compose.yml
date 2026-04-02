@@ -13,12 +13,8 @@ services:
       - HOST=0.0.0.0
       - NODE_ENV=production
       - ANALYTICS_DIR=/app/data
-      # Optional API keys - uncomment and set if needed
-      # - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
-      # - GRABMAPS_API_KEY=${GRABMAPS_API_KEY}
-      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # - AWS_REGION=${AWS_REGION}
+      # Optional: include a contact email in Nominatim requests for self-hosted deployments
+      # - NOMINATIM_CONTACT_EMAIL=${NOMINATIM_CONTACT_EMAIL}
     env_file:
       - .env
     volumes:

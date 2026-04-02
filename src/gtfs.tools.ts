@@ -6,10 +6,7 @@ import JSZip from 'jszip';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import { prefixToolName } from './utils/tool-naming.js';
-import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
 import { API_BASE_URL } from './config.js';
-import { getRequestCredentials } from './request-context.js';
-import { getRuntimeConfig } from './runtime-config.js';
 
 // GTFS endpoints
 const GTFS_STATIC_ENDPOINT = '/gtfs-static';
@@ -25,18 +22,15 @@ const ERROR_404_NOTE = "If you're getting a 404 error, please check that the pro
 // Combined note for error responses
 const COMBINED_ERROR_NOTE = `${ERROR_404_NOTE} ${REALTIME_DATA_NOTE}`;
 
-// Geocoding APIs
-const GOOGLE_MAPS_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
+// Geocoding API (Nominatim / OpenStreetMap — no API key required)
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_USER_AGENT = 'Malaysia-Open-Data-MCP-Server/1.0 (+https://github.com/hithereiamaliff/mcp-datagovmy)';
+const NOMINATIM_CONTACT_EMAIL = process.env.NOMINATIM_CONTACT_EMAIL?.trim();
+const NOMINATIM_MIN_INTERVAL_MS = 1000;
+const GEOCODE_CACHE_HIT_TTL_MS = 24 * 60 * 60 * 1000;
+const GEOCODE_CACHE_MISS_TTL_MS = 60 * 60 * 1000;
 
-function getCredentialConfig() {
-  return getRequestCredentials() || getRuntimeConfig();
-}
-
-// Google Maps API key from request context or runtime config
-function getGoogleMapsApiKey(): string {
-  return getCredentialConfig().googleMapsApiKey;
-}
+type GeocodeResult = { lat: number; lon: number } | null;
 
 // Valid providers and categories
 const VALID_PROVIDERS = ['mybas-johor', 'ktmb', 'prasarana'];
@@ -143,7 +137,7 @@ function normalizeProviderAndCategory(provider: string, category?: string): { pr
 }
 
 // Export geocoding functions for testing
-export { geocodeLocation, geocodeWithGrabMaps, geocodeWithNominatim, haversineDistance };
+export { geocodeLocation, geocodeWithNominatim, haversineDistance };
 
 // Cache for GTFS data to avoid repeated downloads and parsing
 const gtfsCache = {
@@ -156,6 +150,11 @@ const gtfsCache = {
 const STATIC_CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 const REALTIME_CACHE_EXPIRY = 30 * 1000; // 30 seconds
 const TRIP_UPDATES_CACHE_EXPIRY = 30 * 1000; // 30 seconds
+
+const geocodeCache = new Map<string, { result: GeocodeResult; timestamp: number }>();
+const geocodeInFlight = new Map<string, Promise<GeocodeResult>>();
+let nominatimRequestQueue: Promise<void> = Promise.resolve();
+let lastNominatimRequestStartedAt = 0;
 
 /**
  * Parse CSV data from a readable stream
@@ -277,49 +276,16 @@ function enhanceLocationQuery(query: string): string {
   return query;
 }
 
-// GrabMaps API key from request context or runtime config
-function getGrabMapsApiKey(): string {
-  return getCredentialConfig().grabMapsApiKey;
-}
-
 /**
- * Geocode a location name to coordinates using available providers with fallback
+ * Geocode a location name to coordinates using Nominatim (OpenStreetMap)
  * @param query Location name to geocode
  * @param country Optional country code to limit results (e.g., 'my' for Malaysia)
  * @returns Promise with coordinates or null if not found
  */
 async function geocodeLocation(query: string, country: string = 'my'): Promise<{ lat: number; lon: number } | null> {
   try {
-    // Enhance the query with better context
     const enhancedQuery = enhanceLocationQuery(query);
-    
-    // Get API keys for different providers
-    const googleMapsApiKey = getGoogleMapsApiKey();
-    const grabMapsApiKey = getGrabMapsApiKey();
-    
-    // Try GrabMaps first for Southeast Asian countries (preferred for the region)
-    const seaCountries = ['my', 'sg', 'id', 'th', 'ph', 'vn', 'mm', 'la', 'kh', 'bn', 'tl'];
-    if (grabMapsApiKey && seaCountries.includes(country.toLowerCase())) {
-      console.log('Attempting to geocode with GrabMaps (preferred for Southeast Asia)');
-      const grabMapsResult = await geocodeWithGrabMaps(enhancedQuery, query, country, grabMapsApiKey);
-      if (grabMapsResult) {
-        return grabMapsResult;
-      }
-      console.log('GrabMaps geocoding failed, falling back to other providers');
-    }
-    
-    // Try Google Maps if API key is available
-    if (googleMapsApiKey) {
-      console.log('Attempting to geocode with Google Maps');
-      const googleResult = await geocodeWithGoogleMaps(enhancedQuery, query, country, googleMapsApiKey);
-      if (googleResult) {
-        return googleResult;
-      }
-      console.log('Google Maps geocoding failed, falling back to Nominatim');
-    }
-    
-    // Fall back to Nominatim (always available as open source solution)
-    console.log('Attempting to geocode with Nominatim');
+    console.log('Geocoding with Nominatim');
     return await geocodeWithNominatim(enhancedQuery, query, country);
   } catch (error) {
     console.error('Geocoding error:', error);
@@ -328,267 +294,127 @@ async function geocodeLocation(query: string, country: string = 'my'): Promise<{
 }
 
 /**
- * Geocode using Google Maps API
- */
-async function geocodeWithGoogleMaps(enhancedQuery: string, originalQuery: string, country: string, apiKey: string): Promise<{ lat: number; lon: number } | null> {
-  // Build URL with parameters for Google Maps API
-  const params = new URLSearchParams({
-    address: enhancedQuery,
-    components: `country:${country}`,
-    key: apiKey
-  });
-  
-  // Make request to Google Maps Geocoding API
-  console.log(`Geocoding with Google Maps API: "${enhancedQuery}"`);
-  const response = await axios.get(`${GOOGLE_MAPS_GEOCODING_API}?${params.toString()}`);
-  
-  // Check if we got any results
-  if (response.data && 
-      response.data.status === 'OK' && 
-      response.data.results && 
-      response.data.results.length > 0) {
-    
-    const result = response.data.results[0];
-    const location = result.geometry.location;
-    
-    console.log(`Google Maps found location: ${result.formatted_address}`);
-    
-    return {
-      lat: location.lat,
-      lon: location.lng
-    };
-  } else {
-    console.log(`Google Maps API returned status: ${response.data.status}`);
-  }
-  
-  // If enhanced query failed and it was different from original, try the original
-  if (enhancedQuery !== originalQuery) {
-    console.log(`Enhanced query failed, trying original query: ${originalQuery}`);
-    
-    const originalParams = new URLSearchParams({
-      address: originalQuery,
-      components: `country:${country}`,
-      key: apiKey
-    });
-    
-    const originalResponse = await axios.get(`${GOOGLE_MAPS_GEOCODING_API}?${originalParams.toString()}`);
-    
-    if (originalResponse.data && 
-        originalResponse.data.status === 'OK' && 
-        originalResponse.data.results && 
-        originalResponse.data.results.length > 0) {
-      
-      const result = originalResponse.data.results[0];
-      const location = result.geometry.location;
-      
-      console.log(`Google Maps found location with original query: ${result.formatted_address}`);
-      
-      return {
-        lat: location.lat,
-        lon: location.lng
-      };
-    } else {
-      console.log(`Google Maps API returned status for original query: ${originalResponse.data.status}`);
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Geocode using GrabMaps API via AWS Location Service
- * 
- * Note: This requires valid AWS credentials with permissions to access AWS Location Service.
- * If the credentials are invalid or missing, the function will return null and log an error.
- * 
- * Prerequisites for using this function:
- * 1. Valid AWS Access Key ID and Secret Access Key with Location Service permissions
- * 2. A Place Index created in AWS Location Service with GrabMaps as the data provider
- * 3. GrabMaps API key
- * 4. Correct AWS region configuration (ap-southeast-5 for Malaysia)
- * 
- * @param enhancedQuery Enhanced query with additional context
- * @param originalQuery Original query without enhancement
- * @param country Country code (e.g., 'my' for Malaysia)
- * @param apiKey GrabMaps API key
- * @returns Coordinates or null if geocoding failed
- */
-async function geocodeWithGrabMaps(enhancedQuery: string, originalQuery: string, country: string, apiKey: string): Promise<{ lat: number; lon: number } | null> {
-  console.log(`Attempting to geocode with GrabMaps via AWS Location Service: "${enhancedQuery}"`);
-  
-  try {
-    const credentials = getCredentialConfig();
-
-    // Check for required AWS credentials
-    const accessKeyId = credentials.awsAccessKeyId;
-    const secretAccessKey = credentials.awsSecretAccessKey;
-    const awsRegion = credentials.awsRegion || 'ap-southeast-5';
-    const grabMapsApiKey = credentials.grabMapsApiKey || apiKey;
-    
-    if (!accessKeyId) {
-      console.error('AWS Access Key ID not found in environment variables');
-      return null;
-    }
-    
-    if (!secretAccessKey) {
-      console.error('AWS Secret Access Key not found in environment variables');
-      return null;
-    }
-    
-    if (!grabMapsApiKey) {
-      console.error('GrabMaps API key not found in environment variables');
-      return null;
-    }
-    
-    if (!awsRegion) {
-      console.error('AWS Region not found in environment variables, using default ap-southeast-5');
-      // We don't return null here as we have a default value
-    }
-    
-    // Create a new AWS Location Service client
-    const client = new LocationClient({
-      region: awsRegion, // Use region from env vars or default to Singapore
-      credentials: {
-        accessKeyId,
-        secretAccessKey
-      }
-    });
-    
-    console.log(`Using AWS region: ${awsRegion}`);
-    
-    console.log('AWS Location Service client created. Attempting to geocode...');
-
-    // Convert 2-letter country code to 3-letter code for AWS Location Service
-    // AWS Location Service requires 3-letter ISO country codes
-    const countryCode2 = country.toLowerCase();
-    let countryCode3 = 'MYS'; // Default to Malaysia
-    
-    // Map of 2-letter to 3-letter country codes for Southeast Asia
-    const countryCodes: Record<string, string> = {
-      'my': 'MYS', // Malaysia
-      'sg': 'SGP', // Singapore
-      'id': 'IDN', // Indonesia
-      'th': 'THA', // Thailand
-      'ph': 'PHL', // Philippines
-      'vn': 'VNM', // Vietnam
-      'mm': 'MMR', // Myanmar
-      'la': 'LAO', // Laos
-      'kh': 'KHM', // Cambodia
-      'bn': 'BRN', // Brunei
-      'tl': 'TLS'  // Timor-Leste
-    };
-    
-    if (countryCode2 in countryCodes) {
-      countryCode3 = countryCodes[countryCode2 as keyof typeof countryCodes];
-    }
-    
-    console.log(`Using 3-letter country code: ${countryCode3}`);
-    
-    // Create the search command
-    const command = new SearchPlaceIndexForTextCommand({
-      IndexName: 'explore.place.Grab', // The name of your Place Index with GrabMaps data provider
-      Text: enhancedQuery,
-      BiasPosition: [101.6942371, 3.1516964], // Bias towards KL, Malaysia
-      FilterCountries: [countryCode3], // Filter by country
-      MaxResults: 1
-    });
-    
-    // Send the command
-    const response = await client.send(command);
-    
-    // Process the response
-    if (response.Results && response.Results.length > 0 && response.Results[0].Place?.Geometry?.Point) {
-      const point = response.Results[0].Place.Geometry.Point;
-      const result = {
-        lat: point[1], // AWS returns [longitude, latitude]
-        lon: point[0]
-      };
-      
-      console.log(`\u2705 GrabMaps geocoding successful: ${JSON.stringify(result)}`);
-      console.log(`Location: ${response.Results[0].Place.Label}`);
-      
-      return result;
-    }
-    
-    console.log('No results found with GrabMaps via AWS Location Service');
-    return null;
-  } catch (error) {
-    console.error('Error geocoding with GrabMaps via AWS Location Service:', error);
-    
-    // Check for specific AWS errors
-    if (error && typeof error === 'object' && 'name' in error) {
-      const awsError = error as { name: string };
-      
-      if (awsError.name === 'UnrecognizedClientException') {
-        console.error('AWS authentication failed. Please check your AWS credentials.');
-      } else if (awsError.name === 'ValidationException') {
-        console.error('AWS Location Service validation error. Please check your request parameters.');
-      } else if (awsError.name === 'ResourceNotFoundException') {
-        console.error('Place Index not found. Please check if "explore.place.Grab" exists in your AWS account.');
-      }
-    }
-    
-    return null;
-  }
-}
-
-/**
  * Geocode using Nominatim API (OpenStreetMap)
  */
 async function geocodeWithNominatim(enhancedQuery: string, originalQuery: string, country: string): Promise<{ lat: number; lon: number } | null> {
-  // Build URL with parameters for Nominatim
-  const params = new URLSearchParams({
-    q: enhancedQuery,
-    format: 'json',
-    limit: '1',
-    countrycodes: country,
-  });
-  
-  // Make request to Nominatim API
-  console.log(`Geocoding with Nominatim API: "${enhancedQuery}"`);
-  const response = await axios.get(`${NOMINATIM_API}?${params.toString()}`, {
-    headers: {
-      'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
-    },
-  });
-  
-  // Check if we got any results
-  if (response.data && response.data.length > 0) {
-    const result = response.data[0];
-    console.log(`Nominatim found location: ${result.display_name}`);
-    return {
-      lat: parseFloat(result.lat),
-      lon: parseFloat(result.lon),
-    };
+  const enhancedResult = await lookupWithNominatim(enhancedQuery, country);
+  if (enhancedResult) {
+    return enhancedResult;
   }
-  
+
   // If enhanced query failed and it was different from original, try the original
   if (enhancedQuery !== originalQuery) {
     console.log(`Enhanced query failed, trying original query with Nominatim: ${originalQuery}`);
-    const originalParams = new URLSearchParams({
-      q: originalQuery,
-      format: 'json',
-      limit: '1',
-      countrycodes: country,
-    });
-    
-    const originalResponse = await axios.get(`${NOMINATIM_API}?${originalParams.toString()}`, {
-      headers: {
-        'User-Agent': 'Malaysia-Open-Data-MCP-Server/1.0',
-      },
-    });
-    
-    if (originalResponse.data && originalResponse.data.length > 0) {
-      const result = originalResponse.data[0];
-      console.log(`Nominatim found location with original query: ${result.display_name}`);
-      return {
-        lat: parseFloat(result.lat),
-        lon: parseFloat(result.lon),
-      };
-    }
+    return lookupWithNominatim(originalQuery, country);
   }
   
   return null;
+}
+
+function createGeocodeCacheKey(query: string, country: string): string {
+  return `${country.trim().toLowerCase()}::${query.trim().toLowerCase()}`;
+}
+
+function buildNominatimParams(query: string, country: string): URLSearchParams {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'jsonv2',
+    limit: '1',
+    countrycodes: country,
+  });
+
+  if (NOMINATIM_CONTACT_EMAIL) {
+    params.set('email', NOMINATIM_CONTACT_EMAIL);
+  }
+
+  return params;
+}
+
+function getCachedGeocodeResult(cacheKey: string): GeocodeResult | undefined {
+  const cached = geocodeCache.get(cacheKey);
+  if (!cached) {
+    return undefined;
+  }
+
+  const ttl = cached.result ? GEOCODE_CACHE_HIT_TTL_MS : GEOCODE_CACHE_MISS_TTL_MS;
+  if (Date.now() - cached.timestamp < ttl) {
+    return cached.result;
+  }
+
+  geocodeCache.delete(cacheKey);
+  return undefined;
+}
+
+function setCachedGeocodeResult(cacheKey: string, result: GeocodeResult): GeocodeResult {
+  geocodeCache.set(cacheKey, {
+    result,
+    timestamp: Date.now(),
+  });
+  return result;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function queueNominatimRequest<T>(request: () => Promise<T>): Promise<T> {
+  const scheduled = nominatimRequestQueue.then(async () => {
+    const waitTime = Math.max(
+      0,
+      NOMINATIM_MIN_INTERVAL_MS - (Date.now() - lastNominatimRequestStartedAt)
+    );
+    if (waitTime > 0) {
+      await sleep(waitTime);
+    }
+
+    lastNominatimRequestStartedAt = Date.now();
+    return request();
+  });
+
+  nominatimRequestQueue = scheduled.then(() => undefined, () => undefined);
+  return scheduled;
+}
+
+async function lookupWithNominatim(query: string, country: string): Promise<GeocodeResult> {
+  const cacheKey = createGeocodeCacheKey(query, country);
+  const cached = getCachedGeocodeResult(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const inFlight = geocodeInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = queueNominatimRequest(async () => {
+    const params = buildNominatimParams(query, country);
+    console.log(`Geocoding with Nominatim API: "${query}"`);
+
+    const response = await axios.get(`${NOMINATIM_API}?${params.toString()}`, {
+      headers: {
+        'User-Agent': NOMINATIM_USER_AGENT,
+      },
+    });
+
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      const result = response.data[0];
+      console.log(`Nominatim found location: ${result.display_name}`);
+      return setCachedGeocodeResult(cacheKey, {
+        lat: parseFloat(result.lat),
+        lon: parseFloat(result.lon),
+      });
+    }
+
+    return setCachedGeocodeResult(cacheKey, null);
+  });
+
+  geocodeInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    geocodeInFlight.delete(cacheKey);
+  }
 }
 
 /**
@@ -1598,7 +1424,7 @@ export function registerGtfsTools(server: McpServer) {
           console.log(`Geocoding failed for "${location}", trying with additional context...`);
           
           // Try with state/city context for Malaysian locations
-          const locationVariations = [
+          const locationVariations = Array.from(new Set([
             // Add full country name
             `${location}, Malaysia`,
             // Add common Malaysian states if not already in the query
@@ -1609,7 +1435,7 @@ export function registerGtfsTools(server: McpServer) {
             // Try with common prefixes for condos/apartments
             ...(!/condo|condominium|apartment|residence|residency|heights|court|villa|garden|park/i.test(location) ? 
               [`${location} Condominium`, `${location} Residence`, `${location} Apartment`] : [])
-          ];
+          ]));
           
           // Try each variation until we get coordinates
           for (const variation of locationVariations) {

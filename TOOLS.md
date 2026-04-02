@@ -1,354 +1,137 @@
 # Malaysia Open Data MCP Server Tools
 
-This document provides an overview of the available tools in the Malaysia Open Data MCP Server and best practices for using them.
-
-## Available Tools
-
-### Unified Search Tools
-
-#### `search_all`
-
-This is the **recommended primary search tool** that searches across both datasets and dashboards simultaneously. It intelligently determines whether to prioritize datasets or dashboards based on the query and automatically falls back to the other type if limited results are found.
-
-```json
-{
-  "query": "your search query",
-  "limit": 10, // optional, default is 10
-  "prioritize": "dataset" // optional, can be "dataset" or "dashboard"
-}
-```
-
-**Example usage:**
-```
-search_all
-{
-  "query": "e-payment statistics"
-}
-```
-
-**When to use:** This should be your default search tool for most queries, as it provides the most comprehensive results.
-
-### Data Catalogue Tools
-
-#### `list_datasets_catalogue`
-
-Lists all datasets from the comprehensive catalogue with rich metadata.
-
-#### `search_datasets_catalogue`
-
-Searches datasets by keywords in title or description. Only use this if you specifically need to search only in datasets.
-
-#### `filter_datasets_catalogue`
-
-Filters datasets by various criteria such as frequency, geography, etc.
-
-#### `get_dataset_filters`
-
-Gets available filter options for datasets.
-
-#### `get_dataset_details`
-
-Gets comprehensive metadata for a dataset by ID.
-
-### Dashboard Tools
-
-#### `list_dashboards`
-
-Lists all available dashboards with pagination.
-
-#### `search_dashboards`
-
-Searches dashboards by name or route. Only use this if you specifically need to search only in dashboards.
-
-#### `get_dashboard_by_name`
-
-Gets detailed information about a specific dashboard by name.
-
-#### `get_dashboard_charts`
-
-Gets chart information for a specific dashboard.
+This document summarizes the tools exposed by the Malaysia Open Data MCP server and gives a few practical usage tips.
 
 ## Best Practices
 
-1. **Always start with `search_all`** for any general query about data or visualizations. This tool will search both datasets and dashboards and provide the most relevant results.
+1. Start with `search_all` for broad user questions about Malaysian data.
+2. Use the more specific dataset or dashboard tools only when you already know the type of resource you want.
+3. Prefer GTFS high-level tools such as `get_transit_routes`, `get_transit_stops`, `get_transit_arrivals`, and `search_transit_stops_by_location` over raw GTFS parsing unless you need the underlying feed data.
+4. Remember that GTFS location-name search uses Nominatim only. There are no Google Maps, GrabMaps, or AWS credential paths anymore.
+5. For heavier self-hosted transit geocoding workloads, set `NOMINATIM_CONTACT_EMAIL` and keep public Nominatim usage conservative.
 
-2. **Use specific tools only when needed** - for example, if you already know you need a specific dataset ID or dashboard name.
+## Search and Catalogue Tools
 
-3. **Be aware of data format limitations**:
-   - Dashboard data is visualized on the web interface. Raw data files (e.g., parquet) cannot be directly accessed through this API.
-   - Dataset metadata is available through this API. For downloading the actual data files, users should visit the dataset page on the data portal.
+### `search_all`
 
-4. **Use correct URLs** when referring to resources:
-   - For general data portal resources: `https://data.gov.my/...`
-   - For OpenDOSM resources: `https://open.dosm.gov.my/...`
+Recommended first tool for most open-ended data questions. It searches datasets and dashboards together.
 
-5. **Handle empty results properly** - if a search returns no results, try broadening the search terms or using the `search_all` tool which automatically searches both datasets and dashboards.
-
-### Geocoding Tools
-
-#### `geocode_location`
-
-Geocode a location name to coordinates using available geocoding services. This tool supports multiple geocoding providers with intelligent selection and fallback.
+Example:
 
 ```json
 {
-  "query": "location name or address", // required: the location to geocode
-  "country": "my", // optional: country code to limit results (default: "my" for Malaysia)
-  "provider": "auto" // optional: preferred geocoding provider ("google", "grab", "nominatim", or "auto")
+  "query": "e-payment statistics",
+  "limit": 10
 }
 ```
 
-**Geocoding Providers:**
+### Dataset catalogue
 
-1. **Google Maps** - Requires a valid Google Maps API key set in `GOOGLE_MAPS_API_KEY` environment variable or MCP server config.
+- `list_datasets_catalogue`
+- `search_datasets_catalogue`
+- `filter_datasets_catalogue`
+- `get_dataset_filters`
+- `get_dataset_details`
 
-2. **GrabMaps via AWS Location Service** - For Southeast Asian locations. Requires proper setup:
-   - GrabMaps API key set in environment variables or MCP server config:
-     - `GRABMAPS_API_KEY`: Your GrabMaps API key
-   - Valid AWS credentials with Location Service permissions:
-     - `AWS_ACCESS_KEY_ID`: Your AWS Access Key ID
-     - `AWS_SECRET_ACCESS_KEY`: Your AWS Secret Access Key
-     - `AWS_REGION`: AWS region where your Place Index is created (default: `ap-southeast-5` for Malaysia)
-   - A Place Index created in AWS Location Service with GrabMaps as the data provider (named `explore.place.Grab`)
+Use these when you know you want data catalogue resources specifically.
 
-3. **Nominatim (OpenStreetMap)** - Free, open-source geocoding service. No API key required, but has usage limits.
+### Dashboards
 
-**Provider Selection Logic:**
+- `list_dashboards`
+- `search_dashboards`
+- `get_dashboard_details`
+- `get_dashboard_charts`
 
-When `provider` is set to `auto` (default), the tool uses the following logic:
-- For Southeast Asian countries (MY, SG, TH, VN, PH, ID, MM, KH), tries GrabMaps first if credentials are available
-- Tries Google Maps if API key is available
-- Falls back to GrabMaps for non-Southeast Asian locations if not already tried
-- Uses Nominatim as the final fallback option
+Use these when the user is clearly asking for dashboard or visualization resources.
 
-**Supported providers:**
-- `auto` - Automatically select the best provider based on location and available API keys
-- `google` - Use Google Maps API (requires API key)
-- `grab` - Use GrabMaps API (requires API key, optimized for Southeast Asia)
-- `nominatim` - Use OpenStreetMap Nominatim API (free, no API key required)
+### DOSM
 
-**Example usage:**
-```
-geocode_location
-{
-  "query": "KLCC",
-  "provider": "grab"
-}
-```
+- `list_dosm_datasets`
+- `get_dosm_dataset`
 
-**When to use:** Use this tool when you need to convert a location name or address to geographic coordinates. For Malaysian locations, the GrabMaps provider is recommended when available as it's optimized for Southeast Asian locations.
+## Parquet Tools
 
-### GTFS Transit Data Tools
+- `parse_parquet_file`
+- `get_parquet_info`
+- `find_dashboard_for_parquet`
 
-The GTFS tools support intelligent provider and category normalization, allowing users to use common names instead of exact API parameters. For example, you can use "rapid penang" instead of specifying "prasarana" as the provider and "rapid-bus-penang" as the category.
+These help with parquet-backed datasets and with mapping raw data files back to the dashboard that visualizes them.
 
-### Geocoding Providers
+## Weather and Flood Tools
 
-The GTFS tools use geocoding to convert location names to coordinates. The following providers are supported:
+- `get_weather_forecast`
+- `get_weather_warnings`
+- `get_earthquake_warnings`
+- `get_flood_warnings`
 
-1. **GrabMaps via AWS Location Service** - Preferred for Southeast Asia, requires AWS credentials and GrabMaps API key
-2. **Google Maps** - Requires API key in `GOOGLE_MAPS_API_KEY` environment variable
-3. **Nominatim (OpenStreetMap)** - Default fallback provider, no API key required
+## Transport and GTFS Tools
 
-#### Provider Configuration
+### Transport index tools
 
-##### GrabMaps via AWS Location Service
+- `list_transport_agencies`
+- `get_transport_data`
+- `get_gtfs_static`
+- `get_gtfs_realtime_vehicle_position`
 
-To use GrabMaps for geocoding (recommended for Southeast Asia), you need:
+### GTFS parsing and lookup tools
 
-1. AWS credentials with permissions to access AWS Location Service
-2. A Place Index created in AWS Location Service with GrabMaps as the data provider
-3. GrabMaps API key
+- `parse_gtfs_static`
+- `parse_gtfs_realtime`
+- `get_transit_routes`
+- `get_transit_stops`
+- `get_transit_arrivals`
+- `search_transit_stops_by_location`
+- `find_nearest_transit_stops`
 
-Set the following environment variables:
+### Supported GTFS providers
 
-```
-GRABMAPS_API_KEY=your_grabmaps_api_key
-AWS_ACCESS_KEY_ID=your_aws_access_key_id
-AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
-AWS_REGION=ap-southeast-5  # Malaysia region, or your preferred region
-```
+Direct providers:
 
-The Place Index name is expected to be `explore.place.Grab`. If you use a different name, you'll need to modify the code in `src/gtfs.tools.ts`.
+- `mybas-johor`
+- `ktmb`
+- `prasarana`
 
-##### Google Maps
+Common names are also normalized. Examples:
 
-To use Google Maps for geocoding, set the `GOOGLE_MAPS_API_KEY` environment variable.
+- `rapid penang` -> `prasarana` + `rapid-bus-penang`
+- `rapid kuantan` -> `prasarana` + `rapid-bus-kuantan`
+- `rapid rail` -> `prasarana` + `rapid-rail-kl`
+- `mybas johor` -> `mybas-johor`
+- `ktm` -> `ktmb`
 
-##### Nominatim (OpenStreetMap)
+### `search_transit_stops_by_location`
 
-Nominatim is always available as a fallback and requires no configuration.
+This is the main location-name transit search tool. It geocodes the supplied location with Nominatim, then searches nearby stops and can optionally include upcoming arrivals.
 
-#### Geocoding Provider Priority
-
-The system will attempt to use providers in this order:
-
-1. GrabMaps (if configured and the query is for a Southeast Asian country)
-2. Google Maps (if configured)
-3. Nominatim (always available as fallback)
-
-This ensures the best geocoding results while maintaining reliability.
-
-#### Supported Providers and Categories
-
-**Direct Providers:**
-- `mybas-johor` (also accepts: "mybas", "mybas johor", "mybas johor bahru")
-- `ktmb` (also accepts: "ktm", "keretapi tanah melayu", "keretapi tanah melayu berhad")
-- `prasarana` (requires a category)
-
-**Prasarana Categories:**
-- `rapid-rail-kl` (also accepts: "rapid rail", "rapid rail kl")
-- `rapid-bus-kl` (also accepts: "rapid bus kl")
-- `rapid-bus-penang` (also accepts: "rapid penang", "rapid bus penang")
-- `rapid-bus-kuantan` (also accepts: "rapid kuantan", "rapid bus kuantan")
-- `rapid-bus-mrtfeeder` (also accepts: "mrt feeder", "rapid bus mrt feeder")
-
-#### `parse_gtfs_static`
-
-Parses GTFS Static data (ZIP files with CSV data) for a specific transport provider and returns structured data.
+Example:
 
 ```json
 {
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "force_refresh": false // optional: force refresh the cache
+  "provider": "rapid penang",
+  "location": "Penang Airport",
+  "max_distance": 2,
+  "include_arrivals": true
 }
 ```
 
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang" // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-}
-```
+Arguments:
 
-**Example usage:**
-```
-parse_gtfs_static
-{
-  "provider": "ktmb"
-}
-```
+- `provider`: required GTFS provider or common name
+- `category`: optional, required only for direct `prasarana` usage
+- `location`: required location name
+- `country`: optional country code, defaults to `my`
+- `limit`: optional result limit, defaults to `5`
+- `max_distance`: optional distance in km, defaults to `5`
+- `include_arrivals`: optional, defaults to `true`
+- `arrivals_limit`: optional arrivals per stop, defaults to `3`
 
-**When to use:** This is a low-level tool. For most user queries about transit routes or stops, prefer using `get_transit_routes` or `get_transit_stops` instead. Only use this when you need access to the raw GTFS static data files.
+### `find_nearest_transit_stops`
 
-#### `parse_gtfs_realtime`
+Use this when the user already has coordinates.
 
-Parses GTFS Realtime data (Protocol Buffers) for a specific transport provider and returns structured data.
+Example:
 
 ```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "force_refresh": false // optional: force refresh the cache
-}
-```
-
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang" // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-}
-```
-
-**Example usage:**
-```
-parse_gtfs_realtime
-{
-  "provider": "prasarana",
-  "category": "rapid-rail-kl"
-}
-```
-
-**When to use:** When you need real-time information about vehicle positions for a specific transit provider. You can use common names directly (e.g., "rapid penang", "ktmb", "mybas johor") without needing to call `list_transport_agencies` first.
-
-#### `get_transit_routes`
-
-Retrieves transit routes for a specific provider from parsed GTFS Static data. This is the preferred tool for answering questions about transit routes.
-
-```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "route_id": "1" // optional: filter by route_id
-}
-```
-
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang" // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-}
-```
-
-**Example usage:**
-```
-get_transit_routes
-{
-  "provider": "mybas-johor"
-}
-```
-
-**When to use:** When you need information about transit routes without parsing the entire GTFS dataset.
-
-#### `get_transit_stops`
-
-Retrieves transit stops for a specific provider from parsed GTFS Static data.
-
-```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "stop_id": "1" // optional: filter by stop_id
-}
-```
-
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang" // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-}
-```
-
-**Example usage:**
-```
-get_transit_stops
-{
-  "provider": "prasarana",
-  "category": "rapid-rail-kl",
-  "route_id": "LRT-KJ"
-}
-```
-
-**When to use:** When you need information about transit stops, optionally filtered by route.
-
-#### `find_nearest_transit_stops`
-
-Finds the nearest transit stops to a given location. This is the preferred tool for answering questions about finding nearby bus stops.
-
-```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "latitude": 3.1390, // required: latitude of the user's location
-  "longitude": 101.6869, // required: longitude of the user's location
-  "limit": 5, // optional: maximum number of stops to return (default: 5)
-  "max_distance": 5 // optional: maximum distance in kilometers (default: 5)
-}
-```
-
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang", // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-  "latitude": 5.4141, 
-  "longitude": 100.3292
-}
-```
-
-**Example usage:**
-```
-find_nearest_transit_stops
 {
   "provider": "rapid penang",
   "latitude": 5.4141,
@@ -357,77 +140,17 @@ find_nearest_transit_stops
 }
 ```
 
-**When to use:** When a user asks about finding the nearest bus stop or station to their location. This tool calculates distances and returns stops sorted by proximity.
+### Geocoding behavior
 
-#### `get_transit_arrivals`
+The GTFS tools use Nominatim (OpenStreetMap) only:
 
-Get real-time transit arrivals at a specific stop. This is the preferred tool for answering questions about when the next bus or train will arrive.
+- No geocoding credentials are required
+- Requests are serialized to avoid bursting the public API
+- Results are cached, including misses
+- `NOMINATIM_CONTACT_EMAIL` is optional for self-hosted deployments
 
-```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "stop_id": "1234", // required: ID of the stop to get arrivals for
-  "route_id": "LRT-KJ", // optional: filter arrivals by route
-  "limit": 10 // optional: maximum number of arrivals to return (default: 10)
-}
-```
+## Miscellaneous
 
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang", // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-  "stop_id": "1001"
-}
-```
+### `hello`
 
-**Example usage:**
-```
-get_transit_arrivals
-{
-  "provider": "rapid penang",
-  "stop_id": "1001",
-  "limit": 5
-}
-```
-
-**When to use:** When a user asks about real-time bus or train arrivals at a specific stop, such as "When will the next bus arrive at my stop?" or "Show me arrival times for Rapid Penang buses at stop X".
-
-#### `search_transit_stops_by_location`
-
-Search for transit stops near a named location. This tool geocodes the location name to coordinates using the multi-provider geocoding system (Google Maps, GrabMaps, or Nominatim), then finds nearby stops with optional real-time arrival information. For Malaysian locations, GrabMaps is preferred when available as it's optimized for Southeast Asian locations.
-
-```json
-{
-  "provider": "ktmb", // required: "mybas-johor", "ktmb", or "prasarana" (or common names)
-  "category": "rapid-rail-kl", // required only for prasarana provider
-  "location": "KLCC", // required: location name to search for
-  "country": "my", // optional: country code to limit geocoding results (default: "my" for Malaysia)
-  "limit": 5, // optional: maximum number of stops to return (default: 5)
-  "max_distance": 5, // optional: maximum distance in kilometers (default: 5)
-  "include_arrivals": true, // optional: whether to include upcoming arrivals for each stop (default: true)
-  "arrivals_limit": 3 // optional: maximum number of arrivals to include per stop (default: 3)
-}
-```
-
-**Example with common name:**
-```json
-{
-  "provider": "rapid penang", // automatically maps to provider: "prasarana", category: "rapid-bus-penang"
-  "location": "Penang Airport",
-  "max_distance": 2
-}
-```
-
-**Example usage:**
-```
-search_transit_stops_by_location
-{
-  "provider": "rapid penang",
-  "location": "Penang Airport",
-  "limit": 3,
-  "include_arrivals": true
-}
-```
-
-**When to use:** When a user asks about finding transit stops near a specific location by name, such as "Show me bus stops near KLCC" or "What buses stop at KL Sentral?". This tool combines geocoding with transit data to provide a complete solution.
+Simple health-check style MCP tool for connectivity testing.
