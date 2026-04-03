@@ -67,12 +67,21 @@ Parses and displays data from a Parquet file URL. Supports three output modes vi
 - `maxRows` (optional, default 500, max 2000): Maximum rows to return in `raw` mode, sample in `summary` mode, or display from the latest period in `latest` mode
 - `output_mode` (optional, default `"raw"`): One of `"raw"`, `"summary"`, or `"latest"`
 - `group_by` (optional, summary mode only): Column name to group by
+- `columns` (optional): Array of column names to include. Reduces response size and speeds up parsing.
+- `filter_date_from` (optional): Start date (inclusive) for date range filtering, e.g. `"2025-01-01"` or `"2025"`. Auto-detects the date column.
+- `filter_date_to` (optional): End date (inclusive) for date range filtering, e.g. `"2025-12-31"`.
+- `filter_column` (optional): Column name to filter on (exact match). Use with `filter_value`.
+- `filter_value` (optional): Value to match in `filter_column`.
 
 **Output modes:**
 
 - `"raw"` (default): Returns full row data, identical to the original behavior.
 - `"summary"`: Returns per-column statistical summaries (min/max/mean/median for numeric, top values for categorical, date ranges for date columns) plus sample rows from the head and tail of the file. If the dataset has more rows than `maxRows`, the response is explicitly labeled as sampled.
 - `"latest"`: Scans the dataset for a usable date column, determines granularity (daily/monthly/yearly), and returns only rows from the most recent period. If no usable date column is found, it falls back to tail rows with a warning.
+
+**Filtering:**
+
+All filters work with all output modes. When filters are active, the response includes a `filters` object showing what was applied and how many rows matched. Date range and column value filters can be combined.
 
 Example (summary mode):
 
@@ -99,6 +108,28 @@ Example (summary with grouping):
   "url": "https://storage.data.gov.my/example.parquet",
   "output_mode": "summary",
   "group_by": "state"
+}
+```
+
+Example (fuel prices in 2025 only):
+
+```json
+{
+  "url": "https://storage.data.gov.my/commodities/fuelprice.parquet",
+  "output_mode": "raw",
+  "filter_date_from": "2025-01-01",
+  "filter_date_to": "2025-12-31"
+}
+```
+
+Example (filter by column value + select specific columns):
+
+```json
+{
+  "url": "https://storage.data.gov.my/commodities/fuelprice.parquet",
+  "filter_column": "series_type",
+  "filter_value": "level",
+  "columns": ["date", "ron95", "ron97", "diesel"]
 }
 ```
 

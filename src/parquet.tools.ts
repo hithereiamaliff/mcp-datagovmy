@@ -617,6 +617,7 @@ async function readRawParquetRows(
   options: {
     rowStart?: number;
     rowEnd?: number;
+    columns?: string[];
     context?: RawParquetContext;
   } = {}
 ): Promise<{
@@ -631,6 +632,7 @@ async function readRawParquetRows(
     metadata: context.metadata,
     rowStart: options.rowStart ?? 0,
     rowEnd: options.rowEnd,
+    columns: options.columns,
     compressors,
     parsers: parquetParsers,
   });
@@ -953,6 +955,88 @@ async function getTrueRowCount(url: string): Promise<number | null> {
   }
 }
 
+/**
+ * Apply post-read filters to data rows.
+ * Handles date range filtering and exact-match column filtering.
+ * All filters are applied in-memory after reading rows from the parquet file.
+ */
+function applyFilters(
+  data: Record<string, any>[],
+  schema: Record<string, string>,
+  options: {
+    filter_date_from?: string;
+    filter_date_to?: string;
+    filter_column?: string;
+    filter_value?: string;
+  }
+): { data: Record<string, any>[]; appliedFilters: Record<string, any> } {
+  let filtered = data;
+  const appliedFilters: Record<string, any> = {};
+
+  // Date range filtering
+  if (options.filter_date_from || options.filter_date_to) {
+    const dateCol = detectDateColumnFromSchema(schema)
+      ?? (filtered.length > 0 ? detectDateColumn(filtered[0]) : null);
+
+    if (dateCol) {
+      const fromDate = options.filter_date_from ? strictParseDate(options.filter_date_from) : null;
+      const toDate = options.filter_date_to ? strictParseDate(options.filter_date_to) : null;
+      // For "to" dates, if only YYYY-MM-DD is given, include the entire day
+      const toDateEnd = toDate ? new Date(toDate.getTime() + 86400000 - 1) : null;
+
+      const beforeCount = filtered.length;
+      filtered = filtered.filter(row => {
+        const rowDate = strictParseDate(row[dateCol]);
+        if (!rowDate) return false;
+        if (fromDate && rowDate < fromDate) return false;
+        if (toDateEnd && rowDate > toDateEnd) return false;
+        return true;
+      });
+
+      appliedFilters.date_range = {
+        column: dateCol,
+        from: options.filter_date_from || null,
+        to: options.filter_date_to || null,
+        rowsBefore: beforeCount,
+        rowsAfter: filtered.length,
+      };
+    } else {
+      appliedFilters.date_range = {
+        warning: 'No date column detected. Date filter was not applied.',
+        from: options.filter_date_from || null,
+        to: options.filter_date_to || null,
+      };
+    }
+  }
+
+  // Exact-match column filtering
+  if (options.filter_column && options.filter_value !== undefined) {
+    const columns = Object.keys(schema);
+    if (columns.includes(options.filter_column)) {
+      const beforeCount = filtered.length;
+      filtered = filtered.filter(row => {
+        const val = row[options.filter_column!];
+        if (val === null || val === undefined) return false;
+        return String(val) === options.filter_value;
+      });
+
+      appliedFilters.column_filter = {
+        column: options.filter_column,
+        value: options.filter_value,
+        rowsBefore: beforeCount,
+        rowsAfter: filtered.length,
+      };
+    } else {
+      appliedFilters.column_filter = {
+        warning: `Column '${options.filter_column}' not found.`,
+        availableColumns: columns,
+      };
+    }
+  }
+
+  return { data: filtered, appliedFilters };
+}
+
 // Define the structure for Parquet metadata
 interface ParquetMetadata {
   filename: string;
@@ -1158,14 +1242,19 @@ export function registerParquetTools(server: McpServer) {
   // Parse a Parquet file from a URL
   server.tool(
     prefixToolName('parse_parquet_file'),
-    'Parse and display data from a Parquet file URL. Supports raw output (default), AI-friendly statistical summaries, and latest-period filtering.',
+    'Parse and display data from a Parquet file URL. Supports raw output (default), AI-friendly statistical summaries, and latest-period filtering. Data can be filtered by date range, column value, and column selection.',
     {
       url: z.string().url().describe('URL of the Parquet file to parse'),
       maxRows: z.number().min(1).max(2000).optional().describe('Maximum number of rows to return or sample for statistics (default 500)'),
       output_mode: z.enum(['raw', 'summary', 'latest']).optional().describe('Output format. "raw" (default) returns full row data. "summary" returns column statistics and sample rows for AI consumption. "latest" returns only the most recent time period.'),
       group_by: z.string().optional().describe('Column to group by (summary mode only). Returns aggregated numeric stats per group.'),
+      columns: z.array(z.string()).optional().describe('List of column names to include. Omit to include all columns. Reduces response size and speeds up parsing.'),
+      filter_date_from: z.string().optional().describe('Start date (inclusive) for date range filtering, e.g. "2025-01-01" or "2025". Auto-detects the date column.'),
+      filter_date_to: z.string().optional().describe('End date (inclusive) for date range filtering, e.g. "2025-12-31" or "2025". Auto-detects the date column.'),
+      filter_column: z.string().optional().describe('Column name to filter on (exact match). Use with filter_value.'),
+      filter_value: z.string().optional().describe('Value to match in filter_column (exact string match).'),
     },
-    async ({ url, maxRows = 500, output_mode = 'raw', group_by }) => {
+    async ({ url, maxRows = 500, output_mode = 'raw', group_by, columns, filter_date_from, filter_date_to, filter_column, filter_value }) => {
       const filename = url.split('/').pop() || 'unknown.parquet';
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -1234,13 +1323,55 @@ export function registerParquetTools(server: McpServer) {
         }
       };
 
+      // Shared filter options
+      const filterOpts = { filter_date_from, filter_date_to, filter_column, filter_value };
+      const hasFilters = !!(filter_date_from || filter_date_to || filter_column);
+
       // RAW MODE (default, backward compatible)
       if (output_mode === 'raw') {
         try {
-          const parquetData = await parseParquetFromUrl(url, maxRows);
-          const currentDate = new Date();
-          const detectedDate = parquetData.detected_date || `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-          const dateInfo = formatAsOfValue(detectedDate);
+          if (!hasFilters && !columns) {
+            // Original path — no filters, full backward compatibility
+            const parquetData = await parseParquetFromUrl(url, maxRows);
+            const currentDate = new Date();
+            const detectedDate = parquetData.detected_date || `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            const dateInfo = formatAsOfValue(detectedDate);
+
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  filename, url,
+                  schema: parquetData.schema,
+                  totalRows: parquetData.totalRows,
+                  displayedRows: parquetData.displayedRows,
+                  data: parquetData.data,
+                  ...dateInfo,
+                  timestamp: new Date().toISOString(),
+                }, bigIntSerializer, 2),
+              }],
+            };
+          }
+
+          // Filtered raw mode — use the raw read layer + post-read filters
+          const parquetData = await readRawParquetRows(url, {
+            rowStart: 0,
+            rowEnd: hasFilters ? undefined : maxRows, // read more rows when filtering (filters reduce count)
+            columns,
+          });
+          const { data: filteredData, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
+          const displayData = filteredData.slice(0, maxRows);
+
+          // Detect date from filtered data
+          const dateCol = detectDateColumnFromSchema(parquetData.schema);
+          let dateInfo = {};
+          if (dateCol && displayData.length > 0) {
+            const lastRow = displayData[displayData.length - 1];
+            const details = strictParseDateDetails(lastRow[dateCol]);
+            if (details) {
+              dateInfo = formatAsOfValue(formatDateForGranularity(details.date, details.granularity));
+            }
+          }
 
           return {
             content: [{
@@ -1249,8 +1380,10 @@ export function registerParquetTools(server: McpServer) {
                 filename, url,
                 schema: parquetData.schema,
                 totalRows: parquetData.totalRows,
-                displayedRows: parquetData.displayedRows,
-                data: parquetData.data,
+                displayedRows: displayData.length,
+                filters: appliedFilters,
+                ...(columns ? { selectedColumns: columns } : {}),
+                data: displayData,
                 ...dateInfo,
                 timestamp: new Date().toISOString(),
               }, bigIntSerializer, 2),
@@ -1264,16 +1397,31 @@ export function registerParquetTools(server: McpServer) {
       // SUMMARY MODE
       if (output_mode === 'summary') {
         try {
-          const parquetData = await readRawParquetRows(url, { rowStart: 0, rowEnd: maxRows });
-          const data = parquetData.data;
+          const parquetData = await readRawParquetRows(url, {
+            rowStart: 0,
+            rowEnd: hasFilters ? undefined : maxRows,
+            columns,
+          });
+
+          // Apply filters before computing statistics
+          const { data: filteredData, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
+          const data = hasFilters ? filteredData.slice(0, maxRows) : filteredData;
           const schema = parquetData.schema;
           const totalRows = parquetData.totalRows;
           const sampledRows = data.length;
-          const isExact = sampledRows >= totalRows;
+          const isExact = !hasFilters && sampledRows >= totalRows;
 
           const columnSummaries = computeColumnSummaries(data, schema);
-          const tailRows = await getActualTailRows(url, 3, parquetData.context);
-          const sampleRows = buildSampleRows(data, totalRows, tailRows, 3);
+
+          // Tail rows: skip if filters are active (tail of filtered data is more meaningful)
+          let sampleRows;
+          if (hasFilters) {
+            sampleRows = smartSample(data, 3);
+          } else {
+            const tailRows = await getActualTailRows(url, 3, parquetData.context);
+            sampleRows = buildSampleRows(data, totalRows, tailRows, 3);
+          }
+
           const groupedAggregation = group_by
             ? computeGroupedAggregation(data, group_by, schema)
             : null;
@@ -1284,6 +1432,12 @@ export function registerParquetTools(server: McpServer) {
             : columnSummaries.find((summary): summary is DateColumnSummary => summary.type === 'date');
           const dateInfo = formatAsOfValue(dateSummary?.latest ?? undefined);
 
+          const notePrefix = hasFilters
+            ? `Statistics are based on ${sampledRows} rows after filtering.`
+            : isExact
+              ? 'Statistics are based on the complete dataset.'
+              : `Statistics are based on the first ${sampledRows} of ${totalRows} rows. For full data, use output_mode "raw".`;
+
           return {
             content: [{
               type: 'text' as const,
@@ -1291,9 +1445,9 @@ export function registerParquetTools(server: McpServer) {
                 filename, url,
                 totalRows,
                 sampledRows,
-                note: isExact
-                  ? 'Statistics are based on the complete dataset.'
-                  : `Statistics are based on the first ${sampledRows} of ${totalRows} rows. For full data, use output_mode "raw".`,
+                note: notePrefix,
+                ...(hasFilters ? { filters: appliedFilters } : {}),
+                ...(columns ? { selectedColumns: columns } : {}),
                 totalColumns: Object.keys(schema).length,
                 schema,
                 columnSummaries,
@@ -1312,8 +1466,10 @@ export function registerParquetTools(server: McpServer) {
       // LATEST MODE
       if (output_mode === 'latest') {
         try {
-          const parquetData = await readRawParquetRows(url);
-          const data = parquetData.data;
+          const parquetData = await readRawParquetRows(url, { columns });
+          // Apply column/value filter before latest-date filtering
+          const { data: preFiltered, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
+          const data = preFiltered;
           const schema = parquetData.schema;
           const totalRows = parquetData.totalRows;
 
@@ -1416,6 +1572,8 @@ export function registerParquetTools(server: McpServer) {
                   matchedRows: filteredRows.length,
                   displayedRows: displayedRows.length,
                 },
+                ...(hasFilters ? { filters: appliedFilters } : {}),
+                ...(columns ? { selectedColumns: columns } : {}),
                 totalRows,
                 schema,
                 data: displayedRows,
