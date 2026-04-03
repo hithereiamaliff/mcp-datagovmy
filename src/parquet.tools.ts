@@ -8,6 +8,25 @@ import { compressors } from 'hyparquet-compressors';
 import { prefixToolName } from './utils/tool-naming.js';
 
 /**
+ * Custom parsers for hyparquet to decode date/timestamp parquet types into
+ * ISO strings instead of returning empty objects.
+ */
+const parquetParsers = {
+  dateFromDays(days: number) {
+    return new Date(days * 86400000).toISOString().split('T')[0];
+  },
+  timestampFromMilliseconds(millis: bigint) {
+    return new Date(Number(millis)).toISOString();
+  },
+  timestampFromMicroseconds(micros: bigint) {
+    return new Date(Number(micros / 1000n)).toISOString();
+  },
+  timestampFromNanoseconds(nanos: bigint) {
+    return new Date(Number(nanos / 1000000n)).toISOString();
+  },
+};
+
+/**
  * Custom JSON serializer that handles BigInt values by converting them to strings
  * @param key The key of the current property being serialized
  * @param value The value of the current property being serialized
@@ -613,6 +632,7 @@ async function readRawParquetRows(
     rowStart: options.rowStart ?? 0,
     rowEnd: options.rowEnd,
     compressors,
+    parsers: parquetParsers,
   });
 
   return {
@@ -827,6 +847,7 @@ async function getActualTailRows(
       rowStart: totalRows - tailCount,
       rowEnd: totalRows,
       compressors,
+      parsers: parquetParsers,
     });
 
     return processBigIntValues(tailData);
@@ -1079,11 +1100,12 @@ async function parseParquetFromUrl(url: string, maxRows: number = 500): Promise<
     
     // Parse the Parquet file using hyparquet with compressors for BROTLI support
     const rowEnd = maxRows > 0 ? maxRows : undefined;
-    const parquetData = await parquetReadObjects({ 
+    const parquetData = await parquetReadObjects({
       file,
       rowStart: 0,
       rowEnd,
-      compressors // Add compressors to support BROTLI compression
+      compressors,
+      parsers: parquetParsers,
     });
     
     // Process the data to handle BigInt values
