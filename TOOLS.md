@@ -57,6 +57,51 @@ Use these when the user is clearly asking for dashboard or visualization resourc
 
 These help with parquet-backed datasets and with mapping raw data files back to the dashboard that visualizes them.
 
+### `parse_parquet_file`
+
+Parses and displays data from a Parquet file URL. Supports three output modes via the `output_mode` parameter:
+
+**Parameters:**
+
+- `url` (required): URL of the Parquet file
+- `maxRows` (optional, default 500, max 2000): Maximum rows to return in `raw` mode, sample in `summary` mode, or display from the latest period in `latest` mode
+- `output_mode` (optional, default `"raw"`): One of `"raw"`, `"summary"`, or `"latest"`
+- `group_by` (optional, summary mode only): Column name to group by
+
+**Output modes:**
+
+- `"raw"` (default): Returns full row data, identical to the original behavior.
+- `"summary"`: Returns per-column statistical summaries (min/max/mean/median for numeric, top values for categorical, date ranges for date columns) plus sample rows from the head and tail of the file. If the dataset has more rows than `maxRows`, the response is explicitly labeled as sampled.
+- `"latest"`: Scans the dataset for a usable date column, determines granularity (daily/monthly/yearly), and returns only rows from the most recent period. If no usable date column is found, it falls back to tail rows with a warning.
+
+Example (summary mode):
+
+```json
+{
+  "url": "https://storage.data.gov.my/example.parquet",
+  "output_mode": "summary"
+}
+```
+
+Example (latest mode):
+
+```json
+{
+  "url": "https://storage.data.gov.my/example.parquet",
+  "output_mode": "latest"
+}
+```
+
+Example (summary with grouping):
+
+```json
+{
+  "url": "https://storage.data.gov.my/example.parquet",
+  "output_mode": "summary",
+  "group_by": "state"
+}
+```
+
 ## Weather and Flood Tools
 
 - `get_weather_forecast`

@@ -12,7 +12,7 @@ This is **not** an official MCP server from the Government of Malaysia, Jabatan 
 
 - Unified search across datasets and dashboards
 - Live metadata fetching from [`data-gov-my/datagovmy-meta`](https://github.com/data-gov-my/datagovmy-meta)
-- Pure JavaScript parquet parsing
+- Pure JavaScript parquet parsing with raw, summary, and latest-period modes
 - GTFS static and realtime transit tools
 - Zero-credential geocoding for GTFS location search
 - Built-in analytics endpoints and dashboard
