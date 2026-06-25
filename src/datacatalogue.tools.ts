@@ -253,7 +253,7 @@ export function registerDataCatalogueTools(server: McpServer) {
       geography: z.array(z.string()).optional().describe('Filter by geographic coverage'),
       demography: z.array(z.string()).optional().describe('Filter by demographic coverage'),
       dataSource: z.array(z.string()).optional().describe('Filter by data source organization'),
-      yearRange: z.tuple([z.number(), z.number()]).optional().describe('Filter by year range [start, end]'),
+      yearRange: z.array(z.number()).length(2).optional().describe('Filter by year range [start, end]'),
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
       offset: z.number().min(0).optional().describe('Number of records to skip for pagination'),
     },
@@ -266,7 +266,7 @@ export function registerDataCatalogueTools(server: McpServer) {
           geography,
           demography,
           dataSource,
-          yearRange
+          yearRange: yearRange as [number, number] | undefined
         };
 
         const filteredDatasets = filterDatasets(filterCriteria, datasets);
