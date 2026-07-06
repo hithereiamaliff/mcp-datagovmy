@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/hithereiamaliff-mcp-datagovmy-badge.png)](https://mseep.ai/app/hithereiamaliff-mcp-datagovmy)
+
 # Malaysia Open Data MCP
 
 **MCP Endpoint:** `https://mcp.techmavie.digital/datagovmy/mcp`
