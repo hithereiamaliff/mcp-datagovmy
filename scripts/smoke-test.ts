@@ -66,6 +66,8 @@ const EXTRA_CALLS: typeof CALLS = [
   { tool: 'parse_parquet_file', args: { url: PARQUET_URL, output_mode: 'latest' } },
   { tool: 'parse_parquet_file', args: { url: PARQUET_URL, maxRows: 5 } },
   { tool: 'find_dashboard_for_parquet', args: { url: PARQUET_URL } },
+  // A file that feeds a dashboard chart (upstream lists it with http://)
+  { tool: 'find_dashboard_for_parquet', args: { url: 'http://storage.dosm.gov.my/dashboards/labour_formalwages_snapshot_percentile.parquet' } },
   { tool: 'get_parquet_info', args: { url: 'http://169.254.169.254/latest/meta-data' }, expectError: true },
   { tool: 'parse_gtfs_static', args: { provider: 'ktmb' } },
   { tool: 'parse_gtfs_static', args: { provider: 'ktmb', file: 'stops', limit: 2 } },
@@ -108,10 +110,11 @@ function classify(result: { content?: unknown; isError?: boolean }): { status: s
       if (parsed.status_code && parsed.status_code >= 400) {
         return { status: 'FAIL', note: JSON.stringify(parsed).slice(0, 160) };
       }
-      // Look for the first array-valued field to judge emptiness
-      const firstArray = Object.entries(parsed).find(([, v]) => Array.isArray(v));
-      if (firstArray && (firstArray[1] as unknown[]).length === 0) {
-        return { status: 'EMPTY', note: `"${firstArray[0]}" is empty (${size})` };
+      // EMPTY only when every list in the result is empty (some results legitimately
+      // have an empty list next to a full one, e.g. no dashboards but one dataset)
+      const arrays = Object.entries(parsed).filter(([, v]) => Array.isArray(v));
+      if (arrays.length > 0 && arrays.every(([, v]) => (v as unknown[]).length === 0)) {
+        return { status: 'EMPTY', note: `${arrays.map(([k]) => `"${k}"`).join(', ')} empty (${size})` };
       }
     }
     if (Array.isArray(parsed) && parsed.length === 0) return { status: 'EMPTY', note: `empty array (${size})` };

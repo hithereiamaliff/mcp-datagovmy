@@ -7,6 +7,8 @@ import { parquetRead, parquetReadObjects, parquetMetadataAsync, parquetSchema, a
 import { compressors } from 'hyparquet-compressors';
 import { prefixToolName } from './utils/tool-naming.js';
 import { AXIOS_TIMEOUT } from './config.js';
+import { getDatasets, getDashboards, type DatasetMetadata, type DashboardMetadata } from './utils/github-index.js';
+import { dashboardUrl, rankDashboards } from './dashboards.tools.js';
 
 // ---------------------------------------------------------------------------
 // Safety limits.
@@ -1308,25 +1310,108 @@ function estimateParquetStructure(filename: string): Record<string, any> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Where can a parquet file's data be viewed?
+// WHY: this used to be guessed from words in the filename, so almost every file got the
+// generic https://data.gov.my/dashboard. The real links are in the metadata we already load:
+// each dashboard chart names its source file, and each catalogue dataset names its download.
+// ---------------------------------------------------------------------------
+
+const GENERIC_DASHBOARD_PAGE = 'https://data.gov.my/dashboard';
+
 /**
- * Generate a dashboard URL from a parquet file URL
- * @param parquetUrl URL of the parquet file
- * @returns Estimated dashboard URL
+ * One comparable form of a file address: https, lower-case host, no query or trailing spaces.
+ * Upstream writes the same file several ways (http:// vs https://, or the S3 address of the
+ * storage.dosm.gov.my bucket), and one chart source even ends with a space.
  */
-function estimateDashboardUrl(parquetUrl: string): string {
-  // Extract the filename and try to map it to a dashboard
-  const filename = parquetUrl.split('/').pop() || '';
-  
-  if (filename.includes('epayment') || filename.includes('payment')) {
-    return 'https://data.gov.my/dashboard/electronic-payments';
+function normalizeFileUrl(raw: string): string {
+  const trimmed = raw.trim();
+  const resolved = resolveParquetUrl(trimmed); // gov.my links: https + S3 rewrite
+  try {
+    const parsed = new URL('url' in resolved ? resolved.url : trimmed);
+    return `https://${parsed.hostname.toLowerCase()}${parsed.pathname}`;
+  } catch {
+    return trimmed.toLowerCase();
   }
-  
-  if (filename.includes('dosm') || filename.includes('statistics')) {
-    return 'https://open.dosm.gov.my/dashboard';
+}
+
+/** Catalogue page(s) for a dataset: data.gov.my always, plus OpenDOSM when it is listed there. */
+function cataloguePages(ds: DatasetMetadata): { url: string; opendosm_url?: string } {
+  const sites = Array.isArray(ds.site_category)
+    ? ds.site_category.map(c => (c as { site?: unknown } | null)?.site)
+    : [];
+  return {
+    url: `https://data.gov.my/data-catalogue/${ds.id}`,
+    ...(sites.includes('opendosm') ? { opendosm_url: `https://open.dosm.gov.my/data-catalogue/${ds.id}` } : {}),
+  };
+}
+
+export interface ParquetPages {
+  /** What kind of page best_url is */
+  match: 'dashboard_chart' | 'data_catalogue' | 'none';
+  /** The single best page to open */
+  best_url: string;
+  /** Dashboards with a chart that reads exactly this file */
+  dashboards: Array<{ dashboard_name: string; url?: string; charts: string[] }>;
+  /** Data catalogue datasets whose download is this file */
+  datasets: Array<{ id: string; title_en: string; url: string; opendosm_url?: string }>;
+  /** For catalogue files: dashboards with similar names (suggestions, not exact links) */
+  related_dashboards: Array<{ dashboard_name: string; url?: string }>;
+}
+
+// A name match needs at least two query words in the dashboard's name/route to count as related
+const RELATED_DASHBOARD_MIN_SCORE = 8;
+
+/** Find the pages that show a parquet file's data. Pure function (no network), so it can be tested. */
+export function findPagesForParquet(
+  rawUrl: string,
+  datasets: DatasetMetadata[],
+  dashboards: DashboardMetadata[]
+): ParquetPages {
+  const target = normalizeFileUrl(rawUrl);
+
+  const dashboardHits: ParquetPages['dashboards'] = [];
+  for (const d of dashboards) {
+    const charts = Object.entries(d.charts ?? {})
+      .filter(([, chart]) => {
+        const source = (chart as { chart_source?: unknown } | null)?.chart_source;
+        return typeof source === 'string' && normalizeFileUrl(source) === target;
+      })
+      .map(([chartId]) => chartId);
+    if (charts.length > 0) dashboardHits.push({ dashboard_name: d.dashboard_name, url: dashboardUrl(d), charts });
   }
-  
-  // Default to the main dashboard page
-  return 'https://data.gov.my/dashboard';
+
+  const datasetHits: ParquetPages['datasets'] = datasets
+    .filter(ds => typeof ds.link_parquet === 'string' && normalizeFileUrl(ds.link_parquet) === target)
+    .map(ds => ({ id: ds.id, title_en: ds.title_en, ...cataloguePages(ds) }));
+
+  // Catalogue files aren't read by dashboard charts directly, so suggest dashboards whose
+  // name matches the dataset's title (e.g. formal wages percentiles -> Formal Sector Wages)
+  const related = dashboardHits.length === 0 && datasetHits.length > 0
+    ? rankDashboards(datasetHits[0].title_en, dashboards)
+        .filter(result => result.score >= RELATED_DASHBOARD_MIN_SCORE)
+        .slice(0, 3)
+        .map(({ dashboard }) => ({ dashboard_name: dashboard.dashboard_name, url: dashboardUrl(dashboard) }))
+    : [];
+
+  const firstDashboardUrl = dashboardHits.find(hit => hit.url)?.url;
+  if (firstDashboardUrl) {
+    return { match: 'dashboard_chart', best_url: firstDashboardUrl, dashboards: dashboardHits, datasets: datasetHits, related_dashboards: related };
+  }
+  if (datasetHits.length > 0) {
+    return { match: 'data_catalogue', best_url: datasetHits[0].url, dashboards: dashboardHits, datasets: datasetHits, related_dashboards: related };
+  }
+  return { match: 'none', best_url: GENERIC_DASHBOARD_PAGE, dashboards: dashboardHits, datasets: datasetHits, related_dashboards: related };
+}
+
+/** Best page to view a parquet file's data. Never throws: falls back to the generic dashboard list. */
+async function viewPageForParquet(url: string): Promise<string> {
+  try {
+    const [datasets, dashboards] = await Promise.all([getDatasets(), getDashboards()]);
+    return findPagesForParquet(url, datasets, dashboards).best_url;
+  } catch {
+    return GENERIC_DASHBOARD_PAGE;
+  }
 }
 
 /**
@@ -1422,7 +1507,7 @@ export function registerParquetTools(server: McpServer) {
         try {
           const metadata = await getParquetMetadata(url);
           const structureInfo = estimateParquetStructure(metadata.filename);
-          const dashboardUrl = estimateDashboardUrl(url);
+          const dashboardUrl = await viewPageForParquet(url);
           return {
             content: [{
               type: 'text' as const,
@@ -1765,8 +1850,8 @@ export function registerParquetTools(server: McpServer) {
         // Get metadata about the Parquet file
         const metadata = await getParquetMetadata(url);
 
-        // Estimate the dashboard URL
-        const dashboardUrl = estimateDashboardUrl(url);
+        // The page that shows this file's data (its dashboard or catalogue page)
+        const dashboardUrl = await viewPageForParquet(url);
 
         const fileSize = context.file.byteLength || metadata.fileSize;
         const formattedInfo = {
@@ -1802,9 +1887,9 @@ export function registerParquetTools(server: McpServer) {
           
           // Estimate the structure based on the filename
           const structureInfo = estimateParquetStructure(metadata.filename);
-          
-          // Estimate the dashboard URL
-          const dashboardUrl = estimateDashboardUrl(url);
+
+          // The page that shows this file's data (its dashboard or catalogue page)
+          const dashboardUrl = await viewPageForParquet(url);
           
           // Format the information for display
           const formattedInfo = {
@@ -1851,18 +1936,26 @@ export function registerParquetTools(server: McpServer) {
   // Link to dashboard for a parquet file
   server.tool(
     prefixToolName('find_dashboard_for_parquet'),
-    'Find the corresponding dashboard for a Parquet file',
+    'Find the page where a Parquet file\'s data can be viewed: the dashboard whose charts read it, or the data catalogue page of the dataset it belongs to (with related dashboards)',
     {
       url: z.string().url().describe('URL of the parquet file'),
     },
     async ({ url }) => {
       try {
         // Extract the filename from the URL
-        const filename = url.split('/').pop() || 'unknown.parquet';
-        
-        // Estimate the dashboard URL
-        const dashboardUrl = estimateDashboardUrl(url);
-        
+        const filename = url.trim().split('/').pop() || 'unknown.parquet';
+
+        // Look the file up in the dashboard and catalogue metadata (no download needed)
+        const [datasets, dashboards] = await Promise.all([getDatasets(), getDashboards()]);
+        const pages = findPagesForParquet(url, datasets, dashboards);
+
+        const notes: Record<ParquetPages['match'], string> = {
+          dashboard_chart: `This file feeds the dashboard at dashboardUrl (charts: ${pages.dashboards.flatMap(d => d.charts).join(', ')}).`,
+          data_catalogue: `This file is the download for the data catalogue dataset "${pages.datasets[0]?.title_en}"; its catalogue page (dashboardUrl) shows the data.` +
+            (pages.related_dashboards.length > 0 ? ' related_dashboards are dashboards on the same topic (matched by name).' : ''),
+          none: 'No dashboard chart or catalogue dataset links to this file. Browse the dashboards at dashboardUrl, or use search_all to find related data.',
+        };
+
         return {
           content: [
             {
@@ -1870,8 +1963,12 @@ export function registerParquetTools(server: McpServer) {
               text: JSON.stringify({
                 filename,
                 parquetUrl: url,
-                dashboardUrl,
-                note: 'This is the estimated dashboard where you can view the visualized data from this Parquet file.',
+                dashboardUrl: pages.best_url,
+                match: pages.match,
+                dashboards: pages.dashboards,
+                datasets: pages.datasets,
+                related_dashboards: pages.related_dashboards,
+                note: notes[pages.match],
                 timestamp: new Date().toISOString()
               }, bigIntSerializer, 2),
             },
