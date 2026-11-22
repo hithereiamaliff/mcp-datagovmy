@@ -2,9 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 import { prefixToolName } from './utils/tool-naming.js';
-import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
-import { getDatasets } from './utils/github-index.js';
-import { GITHUB_RAW_BASE_URL, CACHE_TTL as CONFIG_CACHE_TTL } from './config.js';
+import { buildSearchTerms, scoreMatch, searchableText, SearchTerms } from './utils/search.js';
+import { getDatasets, normalizeDatasetRecord } from './utils/github-index.js';
+import { GITHUB_RAW_BASE_URL, CACHE_TTL } from './config.js';
 
 // Re-export the interface for consumers
 export type { DatasetMetadata } from './utils/github-index.js';
@@ -38,109 +38,146 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-// Cache for detailed dataset metadata (individual file fetches)
-let detailsCache: Record<string, DatasetMetadata> = {};
-let filtersCache: DatasetFilterOptions | null = null;
-let lastDetailsCacheUpdate: number = 0;
-const CACHE_TTL = CONFIG_CACHE_TTL;
+// Cache for detailed dataset metadata (individual file fetches).
+// Each entry keeps its own timestamp so it expires on its own schedule.
+const detailsCache = new Map<string, { data: DatasetMetadata; fetchedAt: number }>();
 
 // Helper function to get all datasets (now async, fetches live from GitHub)
 export async function getAllDatasets(): Promise<DatasetMetadata[]> {
   return getDatasets();
 }
 
-// Fetch filters from GitHub (only needed once)
-async function fetchFilters(): Promise<DatasetFilterOptions> {
-  if (filtersCache !== null && Date.now() - lastDetailsCacheUpdate < CACHE_TTL) {
-    return filtersCache;
-  }
+/**
+ * The fields an AI client needs to choose a dataset. The full metadata (field
+ * definitions, methodology, translations...) is ~8 KB per dataset, which makes
+ * a 20-result list ~150 KB, too large for many clients. get_dataset_details
+ * still returns everything.
+ */
+function summarizeDataset(d: DatasetMetadata) {
+  return {
+    id: d.id,
+    title_en: d.title_en,
+    title_ms: d.title_ms,
+    description_en: d.description_en,
+    frequency: d.frequency,
+    geography: d.geography,
+    demography: d.demography,
+    data_source: d.data_source,
+    dataset_begin: d.dataset_begin,
+    dataset_end: d.dataset_end,
+    last_updated: d.last_updated,
+    link_csv: d.link_csv,
+    link_parquet: d.link_parquet,
+    url: `https://data.gov.my/data-catalogue/${d.id}`,
+  };
+}
 
-  try {
-    const filtersResponse = await axios.get<DatasetFilterOptions>(`${GITHUB_RAW_BASE_URL}/filters.json`);
-    filtersCache = filtersResponse.data;
-    lastDetailsCacheUpdate = Date.now();
-    return filtersCache;
-  } catch (error) {
-    console.error('Error fetching filters:', error);
-    if (filtersCache !== null) {
-      return filtersCache; // Return stale cache if available
-    }
-    throw new Error('Failed to fetch filters and no cache available');
-  }
+/**
+ * Filter options built from the live catalogue. (They used to come from a
+ * filters.json file upstream, which no longer exists, so this tool always failed.)
+ */
+function buildFilterOptions(datasets: DatasetMetadata[]): DatasetFilterOptions {
+  const uniqueSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort();
+
+  // site_category looks like [{ site: 'opendosm', category_en: 'Labour Markets', ... }]
+  const categoriesOf = (d: DatasetMetadata): string[] =>
+    Array.isArray(d.site_category)
+      ? d.site_category
+          .map(c => (c as { category_en?: unknown } | null)?.category_en)
+          .filter((name): name is string => typeof name === 'string')
+      : [];
+
+  return {
+    categories: uniqueSorted(datasets.flatMap(categoriesOf)),
+    geographies: uniqueSorted(datasets.flatMap(d => d.geography)),
+    frequencies: uniqueSorted(datasets.map(d => d.frequency)),
+    demographies: uniqueSorted(datasets.flatMap(d => d.demography)),
+    dataSources: uniqueSorted(datasets.flatMap(d => d.data_source)),
+  };
 }
 
 // Helper function to get detailed dataset by ID
 async function getDatasetById(id: string): Promise<DatasetMetadata | null> {
-  // Check if we have detailed info cached and it's not expired
-  if (detailsCache[id] && Date.now() - lastDetailsCacheUpdate < CACHE_TTL) {
-    return detailsCache[id];
+  const cached = detailsCache.get(id);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) {
+    return cached.data;
   }
 
-  // Check the index for basic info
+  // The copy in the index (this may be the last good copy if the upstream file is broken)
   const datasets = await getAllDatasets();
-  const basicInfo = datasets.find(d => d.id === id);
+  const indexCopy = datasets.find(d => d.id === id) ?? null;
 
-  // Always try to fetch full details from GitHub
+  // Always try to fetch the latest file from GitHub first
+  let responseData: unknown;
   try {
-    const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${id}.json`);
-    const detailedData = { ...response.data, id } as DatasetMetadata;
-
-    detailsCache[id] = detailedData;
-    lastDetailsCacheUpdate = Date.now();
-
-    return detailedData;
+    const response = await axios.get(`${GITHUB_RAW_BASE_URL}/${encodeURIComponent(id)}.json`);
+    responseData = response.data;
   } catch (error: unknown) {
     console.warn(`Error fetching dataset ${id} from GitHub:`, getErrorMessage(error));
-    // Fall back to basic info from index if available
-    return basicInfo || null;
+    return indexCopy; // e.g. 404 -> null -> "not found" with suggestions
   }
+
+  const detailedData = normalizeDatasetRecord(responseData, id);
+  if (!detailedData) {
+    // The file exists but isn't valid JSON (axios returns the raw text in that case)
+    if (indexCopy) return indexCopy;
+    throw new Error(
+      `The metadata file for '${id}' exists on data.gov.my's GitHub but is currently not valid JSON ` +
+      '(an upstream publishing error). Please try again later.'
+    );
+  }
+
+  detailsCache.set(id, { data: detailedData, fetchedAt: Date.now() });
+  return detailedData;
+}
+
+/** Score one dataset against a prepared query; 0 means it doesn't match. */
+export function scoreDataset(d: DatasetMetadata, terms: SearchTerms): number {
+  // searchableText() turns missing / non-string fields into '' instead of crashing
+  return scoreMatch(
+    {
+      primary: `${searchableText(d.title_en)} | ${searchableText(d.title_ms)}`,
+      id: searchableText(d.id),
+      secondary: `${searchableText(d.description_en)} | ${searchableText(d.description_ms)}`,
+    },
+    terms
+  );
+}
+
+/** Search an in-memory list of datasets: matches only, best match first (ties keep id order). */
+export function rankDatasets(
+  query: string,
+  datasets: DatasetMetadata[]
+): Array<{ dataset: DatasetMetadata; score: number }> {
+  const terms = buildSearchTerms(query);
+  return datasets
+    .map(dataset => ({ dataset, score: scoreDataset(dataset, terms) }))
+    .filter(result => result.score > 0)
+    .sort((a, b) => b.score - a.score);
 }
 
 // Helper function to search datasets with improved matching
 export async function searchDatasets(query: string): Promise<DatasetMetadata[]> {
-  const datasets = await getAllDatasets();
-
-  // Tokenize the query
-  const queryTerms = tokenizeQuery(query);
-  const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
-
-  // If we have no valid terms after tokenization, fall back to the original query
-  if (expandedTerms.length === 0) {
-    const lowerCaseQuery = query.toLowerCase();
-    return datasets.filter(d =>
-      d.title_en.toLowerCase().includes(lowerCaseQuery) ||
-      d.title_ms.toLowerCase().includes(lowerCaseQuery) ||
-      d.description_en.toLowerCase().includes(lowerCaseQuery) ||
-      d.description_ms.toLowerCase().includes(lowerCaseQuery) ||
-      d.id.toLowerCase().includes(lowerCaseQuery)
-    );
-  }
-
-  // Search using expanded terms
-  return datasets.filter(d => {
-    const title_en = d.title_en.toLowerCase();
-    const title_ms = d.title_ms.toLowerCase();
-    const desc_en = d.description_en.toLowerCase();
-    const desc_ms = d.description_ms.toLowerCase();
-    const id = d.id.toLowerCase();
-
-    return expandedTerms.some(term =>
-      title_en.includes(term) ||
-      title_ms.includes(term) ||
-      desc_en.includes(term) ||
-      desc_ms.includes(term) ||
-      id.includes(term)
-    );
-  });
+  return rankDatasets(query, await getAllDatasets()).map(result => result.dataset);
 }
 
-// Helper function to filter datasets
-function filterDatasets(filters: DatasetFilterCriteria, datasets: DatasetMetadata[]): DatasetMetadata[] {
+// Helper function to filter datasets (all comparisons are case-insensitive)
+export function filterDatasets(filters: DatasetFilterCriteria, datasets: DatasetMetadata[]): DatasetMetadata[] {
+  const lower = (values?: string[]) => (values ?? []).map(v => v.toLowerCase());
+  const frequency = filters.frequency?.toLowerCase();
+  const geography = lower(filters.geography);
+  const demography = lower(filters.demography);
+  const dataSource = lower(filters.dataSource);
+
+  // True when no values were requested, or the dataset has at least one of them
+  const hasAny = (wanted: string[], have: string[]) =>
+    wanted.length === 0 || have.some(value => wanted.includes(searchableText(value)));
+
   return datasets.filter(d => {
-    if (filters.frequency && d.frequency !== filters.frequency) return false;
-    if (filters.geography && filters.geography.length > 0 && !filters.geography.some((g: string) => d.geography.includes(g))) return false;
-    if (filters.demography && filters.demography.length > 0 && !filters.demography.some((dem: string) => d.demography.includes(dem))) return false;
-    if (filters.dataSource && filters.dataSource.length > 0 && !filters.dataSource.some((ds: string) => d.data_source.includes(ds))) return false;
+    if (frequency && searchableText(d.frequency) !== frequency) return false;
+    if (!hasAny(geography, d.geography)) return false;
+    if (!hasAny(demography, d.demography)) return false;
+    if (!hasAny(dataSource, d.data_source)) return false;
     if (filters.yearRange && d.dataset_begin !== undefined && d.dataset_end !== undefined &&
         (d.dataset_begin > filters.yearRange[1] || d.dataset_end < filters.yearRange[0])) return false;
     return true;
@@ -151,7 +188,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   // List all datasets with rich metadata
   server.tool(
     prefixToolName('list_datasets_catalogue'),
-    'Lists all datasets from the comprehensive catalogue with rich metadata',
+    'Lists datasets from the data.gov.my catalogue (summary fields; use get_dataset_details for full metadata)',
     {
       limit: z.number().min(1).max(100).optional().describe('Number of results to return (1-100)'),
       offset: z.number().min(0).optional().describe('Number of records to skip for pagination'),
@@ -176,7 +213,7 @@ export function registerDataCatalogueTools(server: McpServer) {
                   next_offset: offset + limit < total ? offset + limit : null,
                   previous_offset: offset > 0 ? Math.max(0, offset - limit) : null,
                 },
-                datasets: paginatedDatasets,
+                datasets: paginatedDatasets.map(summarizeDataset),
                 timestamp: new Date().toISOString()
               }, null, 2),
             },
@@ -209,7 +246,7 @@ export function registerDataCatalogueTools(server: McpServer) {
     },
     async ({ query, limit = 20 }) => {
       try {
-        const searchResults = await searchDatasets(query);
+        const searchResults = rankDatasets(query, await getAllDatasets());
         const limitedResults = searchResults.slice(0, limit);
 
         return {
@@ -217,11 +254,11 @@ export function registerDataCatalogueTools(server: McpServer) {
             {
               type: 'text',
               text: JSON.stringify({
-                message: 'Search results for datasets',
+                message: 'Search results for datasets (best match first)',
                 query,
                 total_matches: searchResults.length,
                 showing: Math.min(limit, searchResults.length),
-                datasets: limitedResults,
+                datasets: limitedResults.map(({ dataset, score }) => ({ ...summarizeDataset(dataset), score })),
                 timestamp: new Date().toISOString()
               }, null, 2),
             },
@@ -247,7 +284,7 @@ export function registerDataCatalogueTools(server: McpServer) {
   // Filter datasets by criteria
   server.tool(
     prefixToolName('filter_datasets_catalogue'),
-    'Filter datasets by various criteria such as frequency, geography, etc.',
+    'Filter datasets by various criteria such as frequency, geography, etc. (use get_dataset_filters to see valid values)',
     {
       frequency: z.string().optional().describe('Filter by data frequency (e.g., DAILY, MONTHLY, ANNUAL)'),
       geography: z.array(z.string()).optional().describe('Filter by geographic coverage'),
@@ -288,7 +325,7 @@ export function registerDataCatalogueTools(server: McpServer) {
                   next_offset: offset + limit < total ? offset + limit : null,
                   previous_offset: offset > 0 ? Math.max(0, offset - limit) : null,
                 },
-                datasets: paginatedResults,
+                datasets: paginatedResults.map(summarizeDataset),
                 timestamp: new Date().toISOString()
               }, null, 2),
             },
@@ -318,7 +355,7 @@ export function registerDataCatalogueTools(server: McpServer) {
     {},
     async () => {
       try {
-        const filters = await fetchFilters();
+        const filters = buildFilterOptions(await getAllDatasets());
 
         return {
           content: [

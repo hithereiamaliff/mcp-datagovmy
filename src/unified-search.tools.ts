@@ -2,13 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 // Import search functions and types from both modules
-import { searchDatasets, DatasetMetadata } from './datacatalogue.tools.js';
-import { searchDashboards, DashboardMetadata } from './dashboards.tools.js';
+import { getAllDatasets, rankDatasets, DatasetMetadata } from './datacatalogue.tools.js';
+import { getAllDashboards, rankDashboards, dashboardUrl, primaryRoute, DashboardMetadata } from './dashboards.tools.js';
 import { prefixToolName } from './utils/tool-naming.js';
-import { tokenizeQuery, expandSearchTerms } from './utils/search.js';
 
 // Define result interfaces
-interface SearchResult {
+export interface SearchResult {
   type: 'dataset' | 'dashboard';
   id: string;
   title: string;
@@ -17,75 +16,39 @@ interface SearchResult {
   score: number;
 }
 
-async function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'): Promise<SearchResult[]> {
-  // Tokenize the query into individual terms
-  const queryTerms = tokenizeQuery(query);
+/**
+ * Rank datasets and dashboards together. Pure function (no network) so it can be
+ * tested; scores come from the same scoring the dataset/dashboard search tools use.
+ */
+export function buildUnifiedResults(
+  query: string,
+  datasets: DatasetMetadata[],
+  dashboards: DashboardMetadata[],
+  prioritizeType?: 'dataset' | 'dashboard'
+): SearchResult[] {
+  const datasetResults = rankDatasets(query, datasets).map(({ dataset, score }) => ({
+    type: 'dataset' as const,
+    id: dataset.id,
+    title: dataset.title_en,
+    description: dataset.description_en,
+    url: `https://data.gov.my/data-catalogue/${dataset.id}`,
+    score
+  }));
 
-  // Expand each term with better matching
-  const expandedTerms = queryTerms.flatMap(term => expandSearchTerms(term));
-
-  // Search in datasets with improved scoring
-  const datasetResults = (await searchDatasets(query)).map((dataset: DatasetMetadata) => {
-    const title = dataset.title_en.toLowerCase();
-    const id = dataset.id.toLowerCase();
-    const description = dataset.description_en.toLowerCase();
-
-    // Calculate score based on term matches
-    let score = 0;
-
-    // Check for exact query match (highest priority)
-    if (title.includes(query.toLowerCase())) score += 10;
-    if (description.includes(query.toLowerCase())) score += 5;
-
-    // Check for individual term matches
-    expandedTerms.forEach(term => {
-      if (title.includes(term)) score += 3;
-      if (id.includes(term)) score += 2;
-      if (description.includes(term)) score += 1;
-    });
-
-    return {
-      type: 'dataset' as const,
-      id: dataset.id,
-      title: dataset.title_en,
-      description: dataset.description_en,
-      url: `https://data.gov.my/data-catalogue/${dataset.id}`,
-      score
-    };
-  });
-
-  // Search in dashboards with improved scoring
-  const dashboardResults = (await searchDashboards(query)).map((dashboard: DashboardMetadata) => {
-    const name = dashboard.dashboard_name.toLowerCase();
-    const route = (dashboard.route || '').toLowerCase();
-
-    // Calculate score based on term matches
-    let score = 0;
-
-    // Check for exact query match (highest priority)
-    if (name.includes(query.toLowerCase())) score += 10;
-    if (route.includes(query.toLowerCase())) score += 5;
-
-    // Check for individual term matches
-    expandedTerms.forEach(term => {
-      if (name.includes(term)) score += 3;
-      if (route.includes(term)) score += 2;
-    });
-
+  const dashboardResults = rankDashboards(query, dashboards).map(({ dashboard, score }) => {
+    const name = dashboard.dashboard_name || '';
     return {
       type: 'dashboard' as const,
-      id: dashboard.dashboard_name,
-      title: dashboard.dashboard_name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-      description: dashboard.route || '',
-      url: dashboard.route ?
-        (dashboard.sites?.includes('opendosm') ? `https://open.dosm.gov.my${dashboard.route}` : `https://data.gov.my${dashboard.route}`)
-        : `/dashboard/${dashboard.dashboard_name}`,
+      id: name,
+      title: name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+      description: primaryRoute(dashboard.route) || '',
+      url: dashboardUrl(dashboard),
       score
     };
   });
 
   // Combine results
-  let combinedResults = [...datasetResults, ...dashboardResults];
+  let combinedResults: SearchResult[] = [...datasetResults, ...dashboardResults];
 
   // If a type is prioritized, boost its score
   if (prioritizeType) {
@@ -99,6 +62,11 @@ async function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashbo
 
   // Sort by score (descending)
   return combinedResults.sort((a, b) => b.score - a.score);
+}
+
+async function unifiedSearch(query: string, prioritizeType?: 'dataset' | 'dashboard'): Promise<SearchResult[]> {
+  const [datasets, dashboards] = await Promise.all([getAllDatasets(), getAllDashboards()]);
+  return buildUnifiedResults(query, datasets, dashboards, prioritizeType);
 }
 
 /**
@@ -120,49 +88,31 @@ function isDatasetQuery(query: string): boolean {
 }
 
 /**
- * Performs an intelligent search that automatically falls back to searching both datasets and dashboards
- * if the primary search returns no results
+ * Searches datasets and dashboards together. When a type is prioritized but has
+ * fewer than 3 hits, the other type's hits fill the list ("fallback").
+ *
+ * Each item appears once. (The old version re-ran the same search with the other
+ * boost and merged both lists, so every result showed up twice.)
  */
 async function intelligentSearch(query: string, prioritizeType?: 'dataset' | 'dashboard', limit: number = 10): Promise<{
   results: SearchResult[];
+  totalMatches: number;
   usedFallback: boolean;
   fallbackType?: 'dataset' | 'dashboard';
   originalType?: 'dataset' | 'dashboard';
 }> {
-  // First try with the prioritized type
-  const initialResults = await unifiedSearch(query, prioritizeType);
+  const allResults = await unifiedSearch(query, prioritizeType);
 
-  // If we have enough results, return them
-  if (initialResults.length >= 3 || !prioritizeType) {
-    return {
-      results: initialResults.slice(0, limit),
-      usedFallback: false,
-      originalType: prioritizeType
-    };
-  }
-
-  // If we have few results, try the opposite type as fallback
   const fallbackType = prioritizeType === 'dataset' ? 'dashboard' : 'dataset';
-  const fallbackResults = await unifiedSearch(query, fallbackType);
+  const prioritizedCount = allResults.filter(r => r.type === prioritizeType).length;
+  const usedFallback = Boolean(prioritizeType) && prioritizedCount < 3 &&
+    allResults.some(r => r.type === fallbackType);
 
-  // If fallback has results, return combined results with fallback first
-  if (fallbackResults.length > 0) {
-    const combinedResults = [...fallbackResults, ...initialResults]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    return {
-      results: combinedResults,
-      usedFallback: true,
-      fallbackType,
-      originalType: prioritizeType
-    };
-  }
-
-  // If neither search yielded good results, return the initial results
   return {
-    results: initialResults.slice(0, limit),
-    usedFallback: false,
+    results: allResults.slice(0, limit),
+    totalMatches: allResults.length,
+    usedFallback,
+    fallbackType: usedFallback ? fallbackType : undefined,
     originalType: prioritizeType
   };
 }
@@ -212,6 +162,7 @@ export function registerUnifiedSearchTools(server: McpServer) {
         // Get intelligent search results with automatic fallback
         const {
           results: searchResults,
+          totalMatches,
           usedFallback,
           fallbackType,
           originalType
@@ -230,7 +181,7 @@ export function registerUnifiedSearchTools(server: McpServer) {
               text: JSON.stringify({
                 message: 'Unified search results',
                 query,
-                total_matches: searchResults.length,
+                total_matches: totalMatches,
                 showing: searchResults.length,
                 prioritized_type: originalType || 'none',
                 used_fallback: usedFallback,
