@@ -2,10 +2,23 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 // Import hyparquet with correct function names
-import { parquetReadObjects, parquetMetadataAsync, asyncBufferFromUrl } from 'hyparquet';
+import { parquetRead, parquetReadObjects, parquetMetadataAsync, parquetSchema, asyncBufferFromUrl } from 'hyparquet';
 // Import compressors for BROTLI support
 import { compressors } from 'hyparquet-compressors';
 import { prefixToolName } from './utils/tool-naming.js';
+import { AXIOS_TIMEOUT } from './config.js';
+
+// ---------------------------------------------------------------------------
+// Safety limits.
+// WHY: parquet files are tightly compressed. A 2 MB file on data.gov.my can hold almost
+// 2 million rows, and unpacking all of them into JavaScript objects took over 1 GB of memory
+// in testing, enough to crash a small server for every user. These limits keep each call bounded.
+// ---------------------------------------------------------------------------
+
+/** Most cells (rows x columns) we unpack in one go. Roughly 100-150 MB of memory at worst. */
+const FULL_READ_CELL_LIMIT = 2_000_000;
+/** Most rows we scan when reading only the one or two columns a filter or "latest" needs. */
+const NARROW_SCAN_ROW_LIMIT = 2_000_000;
 
 /**
  * Custom parsers for hyparquet to decode date/timestamp parquet types into
@@ -70,33 +83,6 @@ function processBigIntValues(obj: any): any {
   }
   
   return obj;
-}
-
-/**
- * Detect date column(s) from an object's keys.
- * Centralizes the heuristic used across date processing functions.
- * @param row A data row to inspect for date-like column names
- * @returns Array of column names that look like date columns
- */
-function detectDateColumns(row: Record<string, any>): string[] {
-  const dateColumns: string[] = [];
-  for (const key of Object.keys(row)) {
-    const lowerKey = key.toLowerCase();
-    if (lowerKey === 'date' || lowerKey.includes('date') || lowerKey === 'dt' || lowerKey === 'timestamp') {
-      dateColumns.push(key);
-    }
-  }
-  return dateColumns;
-}
-
-/**
- * Detect the primary date column from a row.
- * @param row A data row to inspect
- * @returns The first date column name found, or null
- */
-function detectDateColumn(row: Record<string, any>): string | null {
-  const cols = detectDateColumns(row);
-  return cols.length > 0 ? cols[0] : null;
 }
 
 type DateGranularity = 'yearly' | 'monthly' | 'daily';
@@ -253,8 +239,7 @@ function strictParseDateDetails(value: any): StrictParsedDate | null {
 /**
  * Strictly parse a value into a Date without fabricating dates.
  * Returns null for any value that cannot be genuinely parsed.
- * Unlike extractLatestDate/processEmptyDateObjects, this never falls back
- * to "current date" -- it only returns real parsed values.
+ * It never falls back to "current date" -- it only returns real parsed values.
  * @param value The value to attempt parsing
  * @returns A valid Date or null
  */
@@ -312,192 +297,75 @@ function classifyColumnType(
 }
 
 /**
- * Process empty date objects in parquet data
- * @param data Array of data rows to process
- * @param url URL of the parquet file
- * @returns Processed data with proper date strings
+ * Parse date values with a small cache.
+ * WHY: big files repeat the same few dates millions of times (e.g. one date per day in a
+ * monthly price file), so caching makes scanning them fast.
  */
-function processEmptyDateObjects(data: any[], url: string): any[] {
-  if (!data || data.length === 0) {
-    return data;
-  }
-
-  // Extract dataset name from URL
-  const urlParts = url.split('/');
-  const filename = urlParts[urlParts.length - 1] || '';
-  const datasetName = filename.split('.')[0] || '';
-
-  // Find the date column(s) in the data
-  const firstRow = data[0];
-  const dateColumns = detectDateColumns(firstRow);
-  
-  if (dateColumns.length === 0) {
-    return data; // No date columns found
-  }
-  
-  // Check if we have any rows with valid date strings to use as a pattern
-  let datePattern: string | null = null;
-  for (const dateColumn of dateColumns) {
-    for (const row of data) {
-      const dateValue = row[dateColumn];
-      if (typeof dateValue === 'string' && dateValue.trim() !== '') {
-        datePattern = dateValue;
-        break;
-      }
+function createDateParser(): (value: unknown) => StrictParsedDate | null {
+  const cache = new Map<string, StrictParsedDate | null>();
+  return (value: unknown) => {
+    if (typeof value !== 'string') return strictParseDateDetails(value);
+    let parsed = cache.get(value);
+    if (parsed === undefined) {
+      parsed = strictParseDateDetails(value);
+      if (cache.size < 100_000) cache.set(value, parsed);
     }
-    if (datePattern) break;
-  }
-  
-  // Dataset-specific handling
-  if (datasetName === 'employment_sector') {
-    // For employment_sector dataset, we know it's annual data from 2001-2022
-    // with 3 sectors (agriculture, industry, services) and 3 sexes (both, male, female)
-    const uniqueSectors = new Set();
-    const uniqueSexes = new Set();
-    
-    data.forEach(row => {
-      if (row.sector) uniqueSectors.add(row.sector);
-      if (row.sex) uniqueSexes.add(row.sex);
-    });
-    
-    const rowsPerYear = uniqueSectors.size * uniqueSexes.size || 9;
-    const startYear = 2001; // First year in the dataset
-    
-    // Process each row
-    return data.map((row, index) => {
-      const newRow = { ...row };
-      
-      // Check if there's a date field that's an empty object
-      if (row.date && typeof row.date === 'object' && Object.keys(row.date).length === 0) {
-        // Calculate which year this row belongs to
-        const yearIndex = Math.floor(index / rowsPerYear);
-        const year = startYear + yearIndex;
-        
-        // Replace empty date object with a proper date string
-        newRow.date = `${year}-01-01 00:00:00`;
-      }
-      
-      return newRow;
-    });
-  }
-  
-  // Generic handling for other datasets
-  return data.map(row => {
-    const newRow = { ...row };
-    
-    // Process each date column
-    for (const dateColumn of dateColumns) {
-      const dateValue = row[dateColumn];
-      
-      // Check if there's a date field that's an empty object
-      if (dateValue && typeof dateValue === 'object' && Object.keys(dateValue).length === 0) {
-        // If we have a date pattern, use it as a template
-        if (datePattern) {
-          // Extract the format from the pattern (e.g., YYYY-MM-DD HH:MM:SS)
-          if (datePattern.includes(' ')) {
-            // Full datetime format
-            newRow[dateColumn] = `${new Date().getFullYear()}-01-01 00:00:00`; // Use current year
-          } else {
-            // Date only format
-            newRow[dateColumn] = `${new Date().getFullYear()}-01-01`; // Use current year
-          }
-        } else {
-          // Default format if no pattern found - use current date for latest data
-          const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const day = String(now.getDate()).padStart(2, '0');
-          newRow[dateColumn] = `${year}-${month}-${day}`;
-        }
-      }
-    }
-    
-    return newRow;
-  });
+    return parsed;
+  };
 }
 
 /**
- * Extract the latest date from parquet data
- * @param data The parquet data to analyze
- * @returns The latest date in YYYY-MM format, or undefined if no date found
+ * Tracks the latest date seen and how precise the dates are (yearly / monthly / daily).
+ * WHY: this replaces Math.max(...allDates), which crashes with "Maximum call stack size
+ * exceeded" once a file has more than about 120,000 rows.
  */
-function extractLatestDate(data: any[]): string | undefined {
-  if (!data || data.length === 0) {
-    return undefined;
-  }
-  
-  // Check if data has a date column
-  const firstRow = data[0];
-  let dateColumn = detectDateColumn(firstRow);
+function createLatestDateTracker() {
+  let latest: StrictParsedDate | null = null;
+  let allYearly = true;
+  let allYearlyOrMonthly = true;
+  let allJan1 = true;
+  let allFirstOfMonth = true;
+  return {
+    add(parsed: StrictParsedDate) {
+      if (!latest || parsed.date > latest.date) latest = parsed;
+      if (parsed.granularity !== 'yearly') allYearly = false;
+      if (parsed.granularity === 'daily') allYearlyOrMonthly = false;
+      if (parsed.date.getUTCDate() !== 1) {
+        allFirstOfMonth = false;
+        allJan1 = false;
+      } else if (parsed.date.getUTCMonth() !== 0) {
+        allJan1 = false;
+      }
+    },
+    /** Latest date plus the granularity that fits ALL dates seen, or null if none were added. */
+    result(): { date: Date; granularity: DateGranularity } | null {
+      const found = latest as StrictParsedDate | null;
+      if (!found) return null;
+      const granularity: DateGranularity = allYearly ? 'yearly'
+        : allYearlyOrMonthly ? 'monthly'
+        : allJan1 ? 'yearly'          // e.g. 2020-01-01, 2021-01-01 ... stored as full dates
+        : allFirstOfMonth ? 'monthly' // e.g. 2024-01-01, 2024-02-01 ...
+        : 'daily';
+      return { date: found.date, granularity };
+    },
+  };
+}
 
-  // If no date column found, check if this is callout data with 'latest' values
-  // This is a special case for the epayment_systems_timeseries_callout.parquet file
-  if (!dateColumn && firstRow.hasOwnProperty('latest') && firstRow.hasOwnProperty('chart')) {
-    // This is likely callout data, which represents the latest month
-    // Use the current date as the reference
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
-  }
-  
-  if (!dateColumn) {
-    // If we still don't have a date column, try to infer from the data structure
-    // For time series data, we can assume the latest data is for the current month
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
-  }
-  
-  // Extract all dates and find the latest one
-  const dates: Date[] = [];
-  for (const row of data) {
-    const dateValue = row[dateColumn];
-    if (dateValue) {
-      // Handle different date formats
-      let date: Date | null = null;
-      
-      if (dateValue instanceof Date) {
-        date = dateValue;
-      } else if (typeof dateValue === 'string') {
-        // Try to parse the date string
-        date = new Date(dateValue);
-      } else if (typeof dateValue === 'number') {
-        // Assume timestamp in milliseconds
-        date = new Date(dateValue);
-      } else if (typeof dateValue === 'object') {
-        // Some date objects might be serialized in a special way
-        // Try to extract year and month if available
-        if (dateValue.year && dateValue.month) {
-          date = new Date(dateValue.year, dateValue.month - 1);
-        } else {
-          // If we can't extract a proper date, use current date
-          date = new Date();
-        }
-      }
-      
-      if (date && !isNaN(date.getTime())) {
-        dates.push(date);
-      }
-    }
-  }
-  
-  if (dates.length === 0) {
-    // If we couldn't extract any valid dates, use the current date
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
-  }
-  
-  // Find the latest date
-  const latestDate = new Date(Math.max(...dates.map(d => d.getTime())));
-  
-  // Format as YYYY-MM
-  const year = latestDate.getFullYear();
-  const month = String(latestDate.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+/**
+ * Last moment that still belongs to a period: "2025" -> 31 Dec 2025 23:59:59.999,
+ * "2025-06" -> 30 Jun 2025 23:59:59.999, "2025-06-30" -> that day at 23:59:59.999.
+ * WHY: the old "to" filter always added just one day, so filter_date_to "2025" meant 1 Jan 2025.
+ */
+function endOfPeriod({ date, granularity }: StrictParsedDate): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const nextPeriodStart = granularity === 'yearly'
+    ? Date.UTC(year + 1, 0, 1)
+    : granularity === 'monthly'
+      ? Date.UTC(year, month + 1, 1)
+      : Date.UTC(year, month, day + 1);
+  return new Date(nextPeriodStart - 1);
 }
 
 // ============================================================
@@ -606,8 +474,16 @@ function inferSchemaFromRawRows(rows: Record<string, any>[]): Record<string, str
   return schema;
 }
 
+/**
+ * fetch() with a time limit on every request hyparquet makes.
+ * WHY: hyparquet uses the built-in fetch, which ignores the axios timeout set in config.ts,
+ * so a stalled storage server could otherwise keep a tool call hanging for minutes.
+ */
+const fetchWithTimeout: typeof fetch = (input, init) =>
+  fetch(input, { ...init, signal: AbortSignal.timeout(AXIOS_TIMEOUT) });
+
 async function getRawParquetContext(url: string): Promise<RawParquetContext> {
-  const file = await asyncBufferFromUrl({ url });
+  const file = await asyncBufferFromUrl({ url, fetch: fetchWithTimeout });
   const metadata = await parquetMetadataAsync(file);
   return { file, metadata };
 }
@@ -643,6 +519,380 @@ async function readRawParquetRows(
     totalRows: Number(context.metadata.num_rows),
     context,
   };
+}
+
+/**
+ * Column name -> simple type ("string", "integer", "number", "date", "timestamp", ...),
+ * read from the file footer, so no row data has to be downloaded.
+ */
+function columnTypesFromMetadata(metadata: RawParquetContext['metadata']): Record<string, string> {
+  const types: Record<string, string> = {};
+  for (const column of parquetSchema(metadata).children) {
+    const { name, type, converted_type: converted, logical_type: logical } = column.element;
+    if (column.children.length > 0) types[name] = 'nested';
+    else if (logical?.type === 'DATE' || converted === 'DATE') types[name] = 'date';
+    else if (logical?.type === 'TIMESTAMP' || converted === 'TIMESTAMP_MILLIS' || converted === 'TIMESTAMP_MICROS' || type === 'INT96') types[name] = 'timestamp';
+    else if (logical?.type === 'DECIMAL' || converted === 'DECIMAL') types[name] = 'decimal';
+    else if (type === 'BYTE_ARRAY' || type === 'FIXED_LEN_BYTE_ARRAY') types[name] = 'string';
+    else if (type === 'INT32' || type === 'INT64') types[name] = 'integer';
+    else if (type === 'FLOAT' || type === 'DOUBLE') types[name] = 'number';
+    else if (type === 'BOOLEAN') types[name] = 'boolean';
+    else types[name] = 'unknown';
+  }
+  return types;
+}
+
+/** Pick the date column: prefer a real date/timestamp column, otherwise fall back to the name check. */
+function detectDateColumnFromTypes(types: Record<string, string>): string | null {
+  return Object.keys(types).find(column => types[column] === 'date' || types[column] === 'timestamp')
+    ?? detectDateColumnFromSchema(types);
+}
+
+/**
+ * Read every value of a few columns as plain arrays, without building row objects.
+ * WHY: deciding which rows match a filter only needs one or two columns, and keeping just
+ * those as arrays uses a small fraction of the memory of loading whole rows.
+ */
+async function readColumnArrays(context: RawParquetContext, columns: string[]): Promise<Record<string, any[]>> {
+  const result: Record<string, any[]> = {};
+  for (const column of columns) result[column] = [];
+  await parquetRead({
+    file: context.file,
+    metadata: context.metadata,
+    columns,
+    compressors,
+    parsers: parquetParsers,
+    onChunk: ({ columnName, columnData, rowStart }) => {
+      const target = result[columnName];
+      if (!target) return;
+      for (let i = 0; i < columnData.length; i++) target[rowStart + i] = columnData[i];
+    },
+  });
+  return result;
+}
+
+/**
+ * Load full rows for specific row numbers by reading one continuous block that covers them.
+ * The block is capped (FULL_READ_CELL_LIMIT) so widely scattered matches can never unpack a
+ * huge file; when that happens we return fewer rows and report capped: true.
+ * Returns raw rows (BigInt not yet converted) so callers can still see the original types.
+ */
+async function readRowsAt(
+  context: RawParquetContext,
+  indexes: number[],
+  columns: string[] | undefined,
+  keepLast = false
+): Promise<{ rows: Record<string, any>[]; capped: boolean }> {
+  if (indexes.length === 0) return { rows: [], capped: false };
+  const columnCount = columns?.length || parquetSchema(context.metadata).children.length || 1;
+  const maxSpan = Math.max(1, Math.floor(FULL_READ_CELL_LIMIT / columnCount));
+  let picked = indexes;
+  if (keepLast) {
+    const last = picked[picked.length - 1];
+    let start = 0;
+    while (last - picked[start] >= maxSpan) start++;
+    picked = picked.slice(start);
+  } else {
+    const first = picked[0];
+    let end = picked.length;
+    while (picked[end - 1] - first >= maxSpan) end--;
+    picked = picked.slice(0, end);
+  }
+  const rowStart = picked[0];
+  const block = await parquetReadObjects({
+    file: context.file,
+    metadata: context.metadata,
+    rowStart,
+    rowEnd: picked[picked.length - 1] + 1,
+    columns,
+    compressors,
+    parsers: parquetParsers,
+  });
+  return { rows: picked.map(i => block[i - rowStart]), capped: picked.length < indexes.length };
+}
+
+type FilterOptions = {
+  filter_date_from?: string;
+  filter_date_to?: string;
+  filter_column?: string;
+  filter_value?: string;
+};
+
+/** The user's filters, checked and parsed once, plus a description to show back to them. */
+interface PreparedFilters {
+  dateColumn: string | null; // set only when a date filter is active
+  from: Date | null;
+  toEnd: Date | null;
+  column: string | null; // set only when a column filter is active
+  value: string;
+  neededColumns: string[]; // the columns the filters have to read
+  appliedFilters: Record<string, any>;
+  error?: string; // set when the user's input can't be understood
+}
+
+function prepareFilters(columnNames: string[], dateColumn: string | null, options: FilterOptions): PreparedFilters {
+  const prepared: PreparedFilters = {
+    dateColumn: null, from: null, toEnd: null, column: null, value: '', neededColumns: [], appliedFilters: {},
+  };
+
+  if (options.filter_date_from || options.filter_date_to) {
+    if (!dateColumn) {
+      prepared.appliedFilters.date_range = {
+        warning: 'No date column detected. Date filter was not applied.',
+        from: options.filter_date_from || null,
+        to: options.filter_date_to || null,
+      };
+    } else {
+      const from = options.filter_date_from ? strictParseDateDetails(options.filter_date_from) : null;
+      const to = options.filter_date_to ? strictParseDateDetails(options.filter_date_to) : null;
+      // WHY: an unreadable date used to be silently ignored while still being reported as applied.
+      if ((options.filter_date_from && !from) || (options.filter_date_to && !to)) {
+        prepared.error = `Could not understand the date filter (from: ${options.filter_date_from ?? '-'}, to: ${options.filter_date_to ?? '-'}). Use YYYY, YYYY-MM or YYYY-MM-DD, for example "2024", "2024-06" or "2024-06-30".`;
+        return prepared;
+      }
+      prepared.dateColumn = dateColumn;
+      prepared.from = from?.date ?? null;
+      prepared.toEnd = to ? endOfPeriod(to) : null;
+      prepared.neededColumns.push(dateColumn);
+      prepared.appliedFilters.date_range = {
+        column: dateColumn,
+        from: options.filter_date_from || null,
+        to: options.filter_date_to || null,
+      };
+    }
+  }
+
+  if (options.filter_column && options.filter_value !== undefined) {
+    if (columnNames.includes(options.filter_column)) {
+      prepared.column = options.filter_column;
+      prepared.value = options.filter_value;
+      if (!prepared.neededColumns.includes(options.filter_column)) prepared.neededColumns.push(options.filter_column);
+      prepared.appliedFilters.column_filter = { column: options.filter_column, value: options.filter_value };
+    } else {
+      prepared.appliedFilters.column_filter = {
+        warning: `Column '${options.filter_column}' not found.`,
+        availableColumns: columnNames,
+      };
+    }
+  }
+
+  return prepared;
+}
+
+/**
+ * Apply prepared filters to rowCount rows, reading values through get(column, rowNumber).
+ * Returns the matching row numbers and records before/after counts for the user.
+ */
+function runFilters(prepared: PreparedFilters, rowCount: number, get: (column: string, row: number) => any): number[] {
+  const parseDate = createDateParser();
+  const matches: number[] = [];
+  let afterDateFilter = 0;
+  for (let i = 0; i < rowCount; i++) {
+    if (prepared.dateColumn) {
+      const date = parseDate(get(prepared.dateColumn, i))?.date;
+      if (!date || (prepared.from && date < prepared.from) || (prepared.toEnd && date > prepared.toEnd)) continue;
+    }
+    afterDateFilter++;
+    if (prepared.column) {
+      const value = get(prepared.column, i);
+      if (value === null || value === undefined || String(value) !== prepared.value) continue;
+    }
+    matches.push(i);
+  }
+  if (prepared.dateColumn) Object.assign(prepared.appliedFilters.date_range, { rowsBefore: rowCount, rowsAfter: afterDateFilter });
+  if (prepared.column) Object.assign(prepared.appliedFilters.column_filter, { rowsBefore: afterDateFilter, rowsAfter: matches.length });
+  return matches;
+}
+
+function tooLargeMessage(totalRows: number): string {
+  return `This file has ${totalRows.toLocaleString('en-US')} rows, more than this server can scan safely (limit ${NARROW_SCAN_ROW_LIMIT.toLocaleString('en-US')} rows). Use output_mode "raw" or "summary" without filters to preview the first rows, or view the full data on its data.gov.my / OpenDOSM page.`;
+}
+
+interface FilteredRows {
+  data: Record<string, any>[]; // BigInt values already converted to strings
+  schema: Record<string, string>; // JS types of the returned rows
+  totalRows: number;
+  matchedRows: number;
+  appliedFilters: Record<string, any>;
+  capped: boolean;
+}
+
+/**
+ * Return up to maxRows rows that match the filters (the first matches, or the last ones).
+ * Small files are unpacked once. Big files are handled in two steps: read only the columns
+ * the filters need to find the matching row numbers, then load just those rows.
+ */
+async function readFilteredRows(
+  context: RawParquetContext,
+  options: { columns?: string[]; filters: FilterOptions; maxRows: number; keepLast?: boolean }
+): Promise<FilteredRows | { error: string }> {
+  const totalRows = Number(context.metadata.num_rows);
+  const types = columnTypesFromMetadata(context.metadata);
+  const allColumns = Object.keys(types);
+  const prepared = prepareFilters(allColumns, detectDateColumnFromTypes(types), options.filters);
+  if (prepared.error) return { error: prepared.error };
+
+  // Always read the columns the filters need, even if the user's "columns" list leaves them out
+  const readColumns = options.columns ? [...new Set([...options.columns, ...prepared.neededColumns])] : undefined;
+  const take = (matches: number[]) => (options.keepLast ? matches.slice(-options.maxRows) : matches.slice(0, options.maxRows));
+  let picked: Record<string, any>[];
+  let matchedRows: number;
+  let capped = false;
+
+  if (prepared.neededColumns.length === 0) {
+    // Nothing to filter on: just read the first (or last) maxRows rows
+    const count = Math.min(options.maxRows, totalRows);
+    const rowStart = options.keepLast ? totalRows - count : 0;
+    picked = count > 0
+      ? await parquetReadObjects({ file: context.file, metadata: context.metadata, rowStart, rowEnd: rowStart + count, columns: readColumns, compressors, parsers: parquetParsers })
+      : [];
+    matchedRows = totalRows;
+  } else if (totalRows * (readColumns?.length || allColumns.length || 1) <= FULL_READ_CELL_LIMIT) {
+    // Small enough: unpack once and filter in memory
+    const rows = await parquetReadObjects({ file: context.file, metadata: context.metadata, columns: readColumns, compressors, parsers: parquetParsers });
+    const matches = runFilters(prepared, rows.length, (column, i) => rows[i][column]);
+    matchedRows = matches.length;
+    picked = take(matches).map(i => rows[i]);
+  } else if (totalRows > NARROW_SCAN_ROW_LIMIT) {
+    return { error: tooLargeMessage(totalRows) };
+  } else {
+    // Big file: find matching row numbers from the filter columns only, then load just those rows
+    const arrays = await readColumnArrays(context, prepared.neededColumns);
+    const matches = runFilters(prepared, totalRows, (column, i) => arrays[column][i]);
+    matchedRows = matches.length;
+    const result = await readRowsAt(context, take(matches), readColumns, options.keepLast);
+    picked = result.rows;
+    capped = result.capped;
+  }
+
+  return {
+    data: processBigIntValues(picked),
+    schema: inferSchemaFromRawRows(picked),
+    totalRows,
+    matchedRows,
+    appliedFilters: prepared.appliedFilters,
+    capped,
+  };
+}
+
+/**
+ * Latest date in the file, at the precision the data uses ("2024", "2024-06" or "2024-06-30").
+ * 1) Use the min/max statistics stored in the file footer (no data download needed).
+ * 2) Otherwise scan just the date column, if the file isn't huge.
+ * Returns null when it can't tell. WHY: the old code invented "the current month" instead,
+ * so files without dates were reported as up to date.
+ */
+async function findLatestDate(context: RawParquetContext, dateColumn: string | null): Promise<string | null> {
+  if (!dateColumn) return null;
+  // Only real dates or date strings count; plain numbers in a "date" column can't be trusted
+  const isUsable = (value: unknown) => value instanceof Date || typeof value === 'string';
+
+  let values: unknown[] = [];
+  let statsComplete = context.metadata.row_groups.length > 0;
+  for (const rowGroup of context.metadata.row_groups) {
+    const stats = rowGroup.columns.find(chunk => chunk.meta_data?.path_in_schema[0] === dateColumn)?.meta_data?.statistics;
+    const max = stats?.max_value ?? stats?.max;
+    const min = stats?.min_value ?? stats?.min;
+    if (!isUsable(max)) {
+      statsComplete = false;
+      break;
+    }
+    values.push(max);
+    if (isUsable(min)) values.push(min);
+  }
+
+  if (!statsComplete) {
+    if (Number(context.metadata.num_rows) > NARROW_SCAN_ROW_LIMIT) return null;
+    values = (await readColumnArrays(context, [dateColumn]))[dateColumn].filter(isUsable);
+  }
+
+  const parseDate = createDateParser();
+  const tracker = createLatestDateTracker();
+  for (const value of values) {
+    const parsed = parseDate(value);
+    if (parsed) tracker.add(parsed);
+  }
+  const latest = tracker.result();
+  return latest ? formatDateForGranularity(latest.date, latest.granularity) : null;
+}
+
+const isGovMyHost = (hostname: string) => hostname === 'gov.my' || hostname.endsWith('.gov.my');
+
+/**
+ * Only fetch parquet files from official Malaysian government hosts over HTTPS.
+ * WHY: otherwise anyone using the public server could make it download from any address
+ * (including private/internal ones) or point it at huge files.
+ * Two harmless rewrites keep old dashboard links working:
+ *  - http://storage.dosm.gov.my/... -> https://storage.dosm.gov.my/... (same files over HTTPS)
+ *  - https://s3.ap-southeast-1.amazonaws.com/storage.dosm.gov.my/... -> https://storage.dosm.gov.my/...
+ */
+function resolveParquetUrl(rawUrl: string): { url: string } | { error: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { error: `Not a valid URL: ${rawUrl}` };
+  }
+  if (parsed.hostname === 's3.ap-southeast-1.amazonaws.com') {
+    const [, bucket, ...rest] = parsed.pathname.split('/');
+    if (bucket && isGovMyHost(bucket)) parsed = new URL(`https://${bucket}/${rest.join('/')}${parsed.search}`);
+  }
+  if (parsed.protocol === 'http:' && isGovMyHost(parsed.hostname)) parsed.protocol = 'https:';
+  if (parsed.protocol !== 'https:' || !isGovMyHost(parsed.hostname)) {
+    return {
+      error: `Only https:// URLs on official *.gov.my hosts are allowed (for example https://storage.data.gov.my/... or https://storage.dosm.gov.my/...). Got: ${parsed.protocol}//${parsed.host}`,
+    };
+  }
+  return { url: parsed.toString() };
+}
+
+function urlNotAllowedResponse(url: string, message: string) {
+  return {
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify({ error: 'URL not allowed', message, url, timestamp: new Date().toISOString() }, null, 2),
+    }],
+  };
+}
+
+/** Explain a refused or invalid request (bad filter, file too big) without pretending to parse it. */
+function refusalResponse(filename: string, url: string, message: string, extra: Record<string, any> = {}) {
+  return {
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify({ filename, url, error: 'Request not processed', message, ...extra, timestamp: new Date().toISOString() }, null, 2),
+    }],
+  };
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** "2024" / "2024-06" / "2024-06-30" -> { data_as_of, data_as_of_formatted }; nothing if unknown. */
+function formatAsOfValue(asOfValue?: string | null): Record<string, string> {
+  if (!asOfValue) {
+    return {};
+  }
+
+  const yearlyMatch = /^(\d{4})$/.exec(asOfValue);
+  if (yearlyMatch) {
+    return { data_as_of: asOfValue, data_as_of_formatted: yearlyMatch[1] };
+  }
+
+  const monthlyMatch = /^(\d{4})-(\d{2})$/.exec(asOfValue);
+  if (monthlyMatch) {
+    const month = Number(monthlyMatch[2]);
+    const formattedMonth = MONTH_NAMES[month - 1] || 'Unknown';
+    return { data_as_of: asOfValue, data_as_of_formatted: `${formattedMonth} ${monthlyMatch[1]}` };
+  }
+
+  const dailyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOfValue);
+  if (dailyMatch) {
+    const month = Number(dailyMatch[2]);
+    const formattedMonth = MONTH_NAMES[month - 1] || 'Unknown';
+    return { data_as_of: asOfValue, data_as_of_formatted: `${formattedMonth} ${Number(dailyMatch[3])}, ${dailyMatch[1]}` };
+  }
+
+  return { data_as_of: asOfValue, data_as_of_formatted: asOfValue };
 }
 
 /**
@@ -833,7 +1083,8 @@ function buildSampleRows(
 async function getActualTailRows(
   url: string,
   count: number = 3,
-  context?: RawParquetContext
+  context?: RawParquetContext,
+  columns?: string[]
 ): Promise<Record<string, any>[]> {
   try {
     const activeContext = context ?? await getRawParquetContext(url);
@@ -848,6 +1099,7 @@ async function getActualTailRows(
       metadata: activeContext.metadata,
       rowStart: totalRows - tailCount,
       rowEnd: totalRows,
+      columns, // respect the user's column selection
       compressors,
       parsers: parquetParsers,
     });
@@ -941,101 +1193,7 @@ function computeGroupedAggregation(
   return result;
 }
 
-/**
- * Get the true total row count from parquet file metadata.
- * @param url URL of the parquet file
- * @returns Total number of rows, or null on failure
- */
-async function getTrueRowCount(url: string): Promise<number | null> {
-  try {
-    const context = await getRawParquetContext(url);
-    return Number(context.metadata.num_rows);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Apply post-read filters to data rows.
- * Handles date range filtering and exact-match column filtering.
- * All filters are applied in-memory after reading rows from the parquet file.
- */
-function applyFilters(
-  data: Record<string, any>[],
-  schema: Record<string, string>,
-  options: {
-    filter_date_from?: string;
-    filter_date_to?: string;
-    filter_column?: string;
-    filter_value?: string;
-  }
-): { data: Record<string, any>[]; appliedFilters: Record<string, any> } {
-  let filtered = data;
-  const appliedFilters: Record<string, any> = {};
-
-  // Date range filtering
-  if (options.filter_date_from || options.filter_date_to) {
-    const dateCol = detectDateColumnFromSchema(schema)
-      ?? (filtered.length > 0 ? detectDateColumn(filtered[0]) : null);
-
-    if (dateCol) {
-      const fromDate = options.filter_date_from ? strictParseDate(options.filter_date_from) : null;
-      const toDate = options.filter_date_to ? strictParseDate(options.filter_date_to) : null;
-      // For "to" dates, if only YYYY-MM-DD is given, include the entire day
-      const toDateEnd = toDate ? new Date(toDate.getTime() + 86400000 - 1) : null;
-
-      const beforeCount = filtered.length;
-      filtered = filtered.filter(row => {
-        const rowDate = strictParseDate(row[dateCol]);
-        if (!rowDate) return false;
-        if (fromDate && rowDate < fromDate) return false;
-        if (toDateEnd && rowDate > toDateEnd) return false;
-        return true;
-      });
-
-      appliedFilters.date_range = {
-        column: dateCol,
-        from: options.filter_date_from || null,
-        to: options.filter_date_to || null,
-        rowsBefore: beforeCount,
-        rowsAfter: filtered.length,
-      };
-    } else {
-      appliedFilters.date_range = {
-        warning: 'No date column detected. Date filter was not applied.',
-        from: options.filter_date_from || null,
-        to: options.filter_date_to || null,
-      };
-    }
-  }
-
-  // Exact-match column filtering
-  if (options.filter_column && options.filter_value !== undefined) {
-    const columns = Object.keys(schema);
-    if (columns.includes(options.filter_column)) {
-      const beforeCount = filtered.length;
-      filtered = filtered.filter(row => {
-        const val = row[options.filter_column!];
-        if (val === null || val === undefined) return false;
-        return String(val) === options.filter_value;
-      });
-
-      appliedFilters.column_filter = {
-        column: options.filter_column,
-        value: options.filter_value,
-        rowsBefore: beforeCount,
-        rowsAfter: filtered.length,
-      };
-    } else {
-      appliedFilters.column_filter = {
-        warning: `Column '${options.filter_column}' not found.`,
-        availableColumns: columns,
-      };
-    }
-  }
-
-  return { data: filtered, appliedFilters };
-}
+// (Filtering now lives in prepareFilters / runFilters / readFilteredRows above.)
 
 // Define the structure for Parquet metadata
 interface ParquetMetadata {
@@ -1179,25 +1337,24 @@ function estimateDashboardUrl(parquetUrl: string): string {
  */
 async function parseParquetFromUrl(url: string, maxRows: number = 500): Promise<any> {
   try {
-    // Create an async buffer from the URL
-    const file = await asyncBufferFromUrl({ url });
-    
-    // Parse the Parquet file using hyparquet with compressors for BROTLI support
-    const rowEnd = maxRows > 0 ? maxRows : undefined;
+    // Open the file and read its footer (row count, schema, date statistics)
+    const context = await getRawParquetContext(url);
+
+    // Parse the Parquet file using hyparquet with compressors for BROTLI support.
+    // Always stop at maxRows: there is no "read everything" mode any more.
     const parquetData = await parquetReadObjects({
-      file,
+      file: context.file,
+      metadata: context.metadata,
       rowStart: 0,
-      rowEnd,
+      rowEnd: Math.max(1, maxRows),
       compressors,
       parsers: parquetParsers,
     });
-    
+
     // Process the data to handle BigInt values
-    let processedData = processBigIntValues(parquetData);
-    
-    // Process empty date objects
-    processedData = processEmptyDateObjects(processedData, url);
-    
+    // (Dates are decoded by parquetParsers, so no "empty date object" patching, and no invented dates.)
+    const processedData = processBigIntValues(parquetData);
+
     // Get metadata to extract schema information
     // This is a workaround since we don't have direct schema access
     // We'll infer schema from the first row
@@ -1217,14 +1374,13 @@ async function parseParquetFromUrl(url: string, maxRows: number = 500): Promise<
       });
     }
     
-    // Removed sorting and filtering code
-    
-    // Get the total number of rows - approximation since we don't have direct access
-    const totalRows = processedData.length;
-    
-    // Extract the latest date from the data
-    const latestDate = extractLatestDate(processedData);
-    
+    // WHY: totalRows used to be the number of rows we happened to read (e.g. 500), not the
+    // file's real size. The file footer knows the true count.
+    const totalRows = Number(context.metadata.num_rows);
+
+    // Latest date across the WHOLE file (not just the rows shown); null if there is none
+    const latestDate = await findLatestDate(context, detectDateColumnFromTypes(columnTypesFromMetadata(context.metadata)));
+
     return {
       schema,
       totalRows,
@@ -1242,9 +1398,9 @@ export function registerParquetTools(server: McpServer) {
   // Parse a Parquet file from a URL
   server.tool(
     prefixToolName('parse_parquet_file'),
-    'Parse and display data from a Parquet file URL. Supports raw output (default), AI-friendly statistical summaries, and latest-period filtering. Data can be filtered by date range, column value, and column selection.',
+    'Parse and display data from a Parquet file URL (official https://*.gov.my hosts such as storage.data.gov.my and storage.dosm.gov.my). Supports raw output (default), AI-friendly statistical summaries, and latest-period filtering. Data can be filtered by date range, column value, and column selection.',
     {
-      url: z.string().url().describe('URL of the Parquet file to parse'),
+      url: z.string().url().describe('URL of the Parquet file to parse (must be https on a *.gov.my host)'),
       maxRows: z.number().min(1).max(2000).optional().describe('Maximum number of rows to return or sample for statistics (default 500)'),
       output_mode: z.enum(['raw', 'summary', 'latest']).optional().describe('Output format. "raw" (default) returns full row data. "summary" returns column statistics and sample rows for AI consumption. "latest" returns only the most recent time period.'),
       group_by: z.string().optional().describe('Column to group by (summary mode only). Returns aggregated numeric stats per group.'),
@@ -1254,36 +1410,12 @@ export function registerParquetTools(server: McpServer) {
       filter_column: z.string().optional().describe('Column name to filter on (exact match). Use with filter_value.'),
       filter_value: z.string().optional().describe('Value to match in filter_column (exact string match).'),
     },
-    async ({ url, maxRows = 500, output_mode = 'raw', group_by, columns, filter_date_from, filter_date_to, filter_column, filter_value }) => {
+    async ({ url: requestedUrl, maxRows = 500, output_mode = 'raw', group_by, columns, filter_date_from, filter_date_to, filter_column, filter_value }) => {
+      // Only fetch from official government hosts over HTTPS (see resolveParquetUrl)
+      const resolved = resolveParquetUrl(requestedUrl);
+      if ('error' in resolved) return urlNotAllowedResponse(requestedUrl, resolved.error);
+      const url = resolved.url;
       const filename = url.split('/').pop() || 'unknown.parquet';
-      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-      const formatAsOfValue = (asOfValue?: string) => {
-        if (!asOfValue) {
-          return {};
-        }
-
-        const yearlyMatch = /^(\d{4})$/.exec(asOfValue);
-        if (yearlyMatch) {
-          return { data_as_of: asOfValue, data_as_of_formatted: yearlyMatch[1] };
-        }
-
-        const monthlyMatch = /^(\d{4})-(\d{2})$/.exec(asOfValue);
-        if (monthlyMatch) {
-          const month = Number(monthlyMatch[2]);
-          const formattedMonth = monthNames[month - 1] || 'Unknown';
-          return { data_as_of: asOfValue, data_as_of_formatted: `${formattedMonth} ${monthlyMatch[1]}` };
-        }
-
-        const dailyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOfValue);
-        if (dailyMatch) {
-          const month = Number(dailyMatch[2]);
-          const formattedMonth = monthNames[month - 1] || 'Unknown';
-          return { data_as_of: asOfValue, data_as_of_formatted: `${formattedMonth} ${Number(dailyMatch[3])}, ${dailyMatch[1]}` };
-        }
-
-        return { data_as_of: asOfValue, data_as_of_formatted: asOfValue };
-      };
 
       // Helper for fallback error response
       const fallbackResponse = async (error: unknown) => {
@@ -1323,9 +1455,9 @@ export function registerParquetTools(server: McpServer) {
         }
       };
 
-      // Shared filter options
+      // Shared filter options. A column filter only counts when a value is given too.
       const filterOpts = { filter_date_from, filter_date_to, filter_column, filter_value };
-      const hasFilters = !!(filter_date_from || filter_date_to || filter_column);
+      const hasFilters = !!(filter_date_from || filter_date_to || (filter_column && filter_value !== undefined));
 
       // RAW MODE (default, backward compatible)
       if (output_mode === 'raw') {
@@ -1333,9 +1465,8 @@ export function registerParquetTools(server: McpServer) {
           if (!hasFilters && !columns) {
             // Original path — no filters, full backward compatibility
             const parquetData = await parseParquetFromUrl(url, maxRows);
-            const currentDate = new Date();
-            const detectedDate = parquetData.detected_date || `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-            const dateInfo = formatAsOfValue(detectedDate);
+            // No date column (or no readable dates) -> no data_as_of at all, rather than a made-up one
+            const dateInfo = formatAsOfValue(parquetData.detected_date);
 
             return {
               content: [{
@@ -1353,37 +1484,32 @@ export function registerParquetTools(server: McpServer) {
             };
           }
 
-          // Filtered raw mode — use the raw read layer + post-read filters
-          const parquetData = await readRawParquetRows(url, {
-            rowStart: 0,
-            rowEnd: hasFilters ? undefined : maxRows, // read more rows when filtering (filters reduce count)
-            columns,
-          });
-          const { data: filteredData, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
-          const displayData = filteredData.slice(0, maxRows);
-
-          // Detect date from filtered data
-          const dateCol = detectDateColumnFromSchema(parquetData.schema);
-          let dateInfo = {};
-          if (dateCol && displayData.length > 0) {
-            const lastRow = displayData[displayData.length - 1];
-            const details = strictParseDateDetails(lastRow[dateCol]);
-            if (details) {
-              dateInfo = formatAsOfValue(formatDateForGranularity(details.date, details.granularity));
-            }
+          // Filtered / column-selected raw mode. Memory stays bounded even for million-row files
+          // (see readFilteredRows); "data_as_of" describes the whole file.
+          const context = await getRawParquetContext(url);
+          const result = await readFilteredRows(context, { columns, filters: filterOpts, maxRows });
+          if ('error' in result) {
+            return refusalResponse(filename, url, result.error, { totalRows: Number(context.metadata.num_rows) });
           }
+          const dateInfo = formatAsOfValue(
+            await findLatestDate(context, detectDateColumnFromTypes(columnTypesFromMetadata(context.metadata)))
+          );
 
           return {
             content: [{
               type: 'text' as const,
               text: JSON.stringify({
                 filename, url,
-                schema: parquetData.schema,
-                totalRows: parquetData.totalRows,
-                displayedRows: displayData.length,
-                filters: appliedFilters,
+                schema: result.schema,
+                totalRows: result.totalRows,
+                ...(hasFilters ? { matchedRows: result.matchedRows } : {}),
+                displayedRows: result.data.length,
+                filters: result.appliedFilters,
                 ...(columns ? { selectedColumns: columns } : {}),
-                data: displayData,
+                data: result.data,
+                note: result.capped
+                  ? 'The matching rows are spread far apart in this file, so only the first ones are shown. Narrow the filter (e.g. add a date range) to see others.'
+                  : undefined,
                 ...dateInfo,
                 timestamp: new Date().toISOString(),
               }, bigIntSerializer, 2),
@@ -1397,17 +1523,22 @@ export function registerParquetTools(server: McpServer) {
       // SUMMARY MODE
       if (output_mode === 'summary') {
         try {
-          const parquetData = await readRawParquetRows(url, {
-            rowStart: 0,
-            rowEnd: hasFilters ? undefined : maxRows,
-            columns,
-          });
-
-          // Apply filters before computing statistics
-          const { data: filteredData, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
-          const data = hasFilters ? filteredData.slice(0, maxRows) : filteredData;
-          const schema = parquetData.schema;
-          const totalRows = parquetData.totalRows;
+          const context = await getRawParquetContext(url);
+          let data: Record<string, any>[];
+          let schema: Record<string, string>;
+          let appliedFilters: Record<string, any> = {};
+          let matchedRows = 0;
+          if (hasFilters) {
+            // Statistics are computed on (up to maxRows of) the rows that match the filters
+            const result = await readFilteredRows(context, { columns, filters: filterOpts, maxRows });
+            if ('error' in result) {
+              return refusalResponse(filename, url, result.error, { totalRows: Number(context.metadata.num_rows) });
+            }
+            ({ data, schema, appliedFilters, matchedRows } = result);
+          } else {
+            ({ data, schema } = await readRawParquetRows(url, { rowStart: 0, rowEnd: maxRows, columns, context }));
+          }
+          const totalRows = Number(context.metadata.num_rows);
           const sampledRows = data.length;
           const isExact = !hasFilters && sampledRows >= totalRows;
 
@@ -1418,7 +1549,7 @@ export function registerParquetTools(server: McpServer) {
           if (hasFilters) {
             sampleRows = smartSample(data, 3);
           } else {
-            const tailRows = await getActualTailRows(url, 3, parquetData.context);
+            const tailRows = await getActualTailRows(url, 3, context, columns);
             sampleRows = buildSampleRows(data, totalRows, tailRows, 3);
           }
 
@@ -1426,14 +1557,14 @@ export function registerParquetTools(server: McpServer) {
             ? computeGroupedAggregation(data, group_by, schema)
             : null;
 
-          const primaryDateColumn = detectDateColumnFromSchema(schema);
-          const dateSummary = primaryDateColumn
-            ? columnSummaries.find((summary): summary is DateColumnSummary => summary.type === 'date' && summary.name === primaryDateColumn)
-            : columnSummaries.find((summary): summary is DateColumnSummary => summary.type === 'date');
-          const dateInfo = formatAsOfValue(dateSummary?.latest ?? undefined);
+          // "data_as_of" describes the whole file, not just the sampled rows (which used to make
+          // a long time series look decades old)
+          const dateInfo = formatAsOfValue(
+            await findLatestDate(context, detectDateColumnFromTypes(columnTypesFromMetadata(context.metadata)))
+          );
 
           const notePrefix = hasFilters
-            ? `Statistics are based on ${sampledRows} rows after filtering.`
+            ? `Statistics are based on ${sampledRows} of the ${matchedRows} rows that matched the filters.`
             : isExact
               ? 'Statistics are based on the complete dataset.'
               : `Statistics are based on the first ${sampledRows} of ${totalRows} rows. For full data, use output_mode "raw".`;
@@ -1466,14 +1597,12 @@ export function registerParquetTools(server: McpServer) {
       // LATEST MODE
       if (output_mode === 'latest') {
         try {
-          const parquetData = await readRawParquetRows(url, { columns });
-          // Apply column/value filter before latest-date filtering
-          const { data: preFiltered, appliedFilters } = applyFilters(parquetData.data, parquetData.schema, filterOpts);
-          const data = preFiltered;
-          const schema = parquetData.schema;
-          const totalRows = parquetData.totalRows;
+          const context = await getRawParquetContext(url);
+          const totalRows = Number(context.metadata.num_rows);
+          const types = columnTypesFromMetadata(context.metadata);
+          const dateCol = detectDateColumnFromTypes(types);
 
-          if (data.length === 0) {
+          if (totalRows === 0) {
             return {
               content: [{
                 type: 'text' as const,
@@ -1486,12 +1615,11 @@ export function registerParquetTools(server: McpServer) {
             };
           }
 
-          const dateCol = detectDateColumnFromSchema(schema) ?? detectDateColumn(data[0]);
-
           if (!dateCol) {
-            const tailCount = Math.min(maxRows, totalRows);
-            const tailRows = await getActualTailRows(url, tailCount, parquetData.context);
-            const returnData = tailRows.length > 0 ? tailRows : data.slice(-tailCount);
+            // No date column: return the LAST rows, after applying any column filter.
+            // (Before, the filter was silently dropped here and unfiltered rows were returned.)
+            const result = await readFilteredRows(context, { columns, filters: filterOpts, maxRows, keepLast: true });
+            if ('error' in result) return refusalResponse(filename, url, result.error, { totalRows });
 
             return {
               content: [{
@@ -1499,26 +1627,55 @@ export function registerParquetTools(server: McpServer) {
                 text: JSON.stringify({
                   filename, url,
                   totalRows,
-                  displayedRows: returnData.length,
+                  displayedRows: result.data.length,
                   warning: 'No date column detected. Returning the last rows of the dataset.',
-                  schema,
-                  data: returnData,
+                  ...(hasFilters ? { filters: result.appliedFilters, matchedRows: result.matchedRows } : {}),
+                  schema: result.schema,
+                  data: result.data,
                   timestamp: new Date().toISOString(),
                 }, bigIntSerializer, 2),
               }],
             };
           }
 
-          const datesWithRows: Array<{ date: Date; row: Record<string, any>; granularity: DateGranularity }> = [];
-          for (const row of data) {
-            const parsed = strictParseDateDetails(row[dateCol]);
-            if (parsed) {
-              datesWithRows.push({ date: parsed.date, row, granularity: parsed.granularity });
-            }
+          // Step 1: read ONLY the date column (plus the filter column, if any) for every row.
+          // WHY: loading every column of every row used ~1 GB for a 1.8-million-row file.
+          const prepared = prepareFilters(Object.keys(types), dateCol, filterOpts);
+          if (prepared.error) return refusalResponse(filename, url, prepared.error, { totalRows });
+          if (totalRows > NARROW_SCAN_ROW_LIMIT) return refusalResponse(filename, url, tooLargeMessage(totalRows), { totalRows });
+          const arrays = await readColumnArrays(context, [...new Set([dateCol, ...prepared.neededColumns])]);
+          const candidates = prepared.neededColumns.length > 0
+            ? runFilters(prepared, totalRows, (column, i) => arrays[column][i])
+            : Array.from({ length: totalRows }, (_, i) => i);
+          // Make sure the date column is in the output even if "columns" left it out
+          const readColumns = columns ? [...new Set([...columns, dateCol])] : undefined;
+
+          if (candidates.length === 0) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  filename, url, totalRows, data: [],
+                  filters: prepared.appliedFilters,
+                  note: 'No rows matched the filters.',
+                  timestamp: new Date().toISOString(),
+                }, null, 2),
+              }],
+            };
           }
 
-          if (datesWithRows.length === 0) {
-            const fallbackData = data.slice(-Math.min(maxRows, data.length));
+          // Step 2: find the latest period with a loop (Math.max(...) crashed above ~120k rows)
+          const parseDate = createDateParser();
+          const tracker = createLatestDateTracker();
+          for (const i of candidates) {
+            const parsed = parseDate(arrays[dateCol][i]);
+            if (parsed) tracker.add(parsed);
+          }
+          const latest = tracker.result();
+
+          if (!latest) {
+            const { rows } = await readRowsAt(context, candidates.slice(-maxRows), readColumns, true);
+            const fallbackData = processBigIntValues(rows);
             return {
               content: [{
                 type: 'text' as const,
@@ -1527,7 +1684,7 @@ export function registerParquetTools(server: McpServer) {
                   totalRows,
                   displayedRows: fallbackData.length,
                   warning: `Date column '${dateCol}' found but no dates could be parsed. Returning the last rows of the dataset without date filtering.`,
-                  schema,
+                  schema: inferSchemaFromRawRows(rows),
                   data: fallbackData,
                   timestamp: new Date().toISOString(),
                 }, bigIntSerializer, 2),
@@ -1535,29 +1692,20 @@ export function registerParquetTools(server: McpServer) {
             };
           }
 
-          let granularity: DateGranularity;
-          if (datesWithRows.every(item => item.granularity === 'yearly')) {
-            granularity = 'yearly';
-          } else if (datesWithRows.every(item => item.granularity === 'yearly' || item.granularity === 'monthly')) {
-            granularity = 'monthly';
-          } else if (datesWithRows.every(item => item.date.getUTCDate() === 1 && item.date.getUTCMonth() === 0)) {
-            granularity = 'yearly';
-          } else if (datesWithRows.every(item => item.date.getUTCDate() === 1)) {
-            granularity = 'monthly';
-          } else {
-            granularity = 'daily';
-          }
+          const granularity = latest.granularity;
+          const periodLabel = formatDateForGranularity(latest.date, granularity);
+          const periodRows = candidates.filter(i => {
+            const parsed = parseDate(arrays[dateCol][i]);
+            return parsed !== null && formatDateForGranularity(parsed.date, granularity) === periodLabel;
+          });
 
-          const latestDate = new Date(Math.max(...datesWithRows.map(item => item.date.getTime())));
-          const periodLabel = formatDateForGranularity(latestDate, granularity);
-          const filteredRows = datesWithRows
-            .filter(item => formatDateForGranularity(item.date, granularity) === periodLabel)
-            .map(item => item.row);
-          const displayedRows = filteredRows.slice(0, maxRows);
+          // Step 3: load full rows only for the first maxRows rows of that period
+          const { rows, capped } = await readRowsAt(context, periodRows.slice(0, maxRows), readColumns);
+          const displayedRows = processBigIntValues(rows);
           const dateInfo = formatAsOfValue(periodLabel);
 
-          const note = filteredRows.length > displayedRows.length
-            ? `Showing the first ${displayedRows.length} rows from the latest ${granularity} period.`
+          const note = periodRows.length > displayedRows.length
+            ? `Showing the first ${displayedRows.length} rows from the latest ${granularity} period${capped ? ' (its rows are spread far apart in the file, so fewer are shown)' : ''}.`
             : undefined;
 
           return {
@@ -1569,13 +1717,13 @@ export function registerParquetTools(server: McpServer) {
                   column: dateCol,
                   granularity,
                   period: periodLabel,
-                  matchedRows: filteredRows.length,
+                  matchedRows: periodRows.length,
                   displayedRows: displayedRows.length,
                 },
-                ...(hasFilters ? { filters: appliedFilters } : {}),
+                ...(hasFilters ? { filters: prepared.appliedFilters } : {}),
                 ...(columns ? { selectedColumns: columns } : {}),
                 totalRows,
-                schema,
+                schema: inferSchemaFromRawRows(rows),
                 data: displayedRows,
                 note,
                 ...dateInfo,
@@ -1596,47 +1744,44 @@ export function registerParquetTools(server: McpServer) {
   // Get information about a Parquet file from a URL
   server.tool(
     prefixToolName('get_parquet_info'),
-    'Get metadata and structure information about a Parquet file',
+    'Get metadata and structure information about a Parquet file (official https://*.gov.my hosts only)',
     {
-      url: z.string().url().describe('URL of the Parquet file to analyze'),
+      url: z.string().url().describe('URL of the Parquet file to analyze (must be https on a *.gov.my host)'),
     },
-    async ({ url }) => {
+    async ({ url: requestedUrl }) => {
+      // Only fetch from official government hosts over HTTPS (see resolveParquetUrl)
+      const resolved = resolveParquetUrl(requestedUrl);
+      if ('error' in resolved) return urlNotAllowedResponse(requestedUrl, resolved.error);
+      const url = resolved.url;
       try {
-        // Try to parse the Parquet file to get accurate schema information
-        const parquetData = await parseParquetFromUrl(url, 0);
-        
+        // Everything comes from the file footer (row count, column types, date statistics).
+        // WHY: this used to download and unpack EVERY row, then crash on files over ~120k rows
+        // and fall back to a made-up "estimated" structure.
+        const context = await getRawParquetContext(url);
+        const columnTypes = columnTypesFromMetadata(context.metadata);
+        const dateColumn = detectDateColumnFromTypes(columnTypes);
+        const latestDate = await findLatestDate(context, dateColumn);
+
         // Get metadata about the Parquet file
         const metadata = await getParquetMetadata(url);
-        
+
         // Estimate the dashboard URL
         const dashboardUrl = estimateDashboardUrl(url);
-        
-        // Format the information for display
-        const currentDate = new Date();
-        const currentYear = currentDate.getFullYear();
-        const currentMonth = currentDate.getMonth() + 1;
-        
-        // Get the detected date or use current date
-        const detectedDate = parquetData.detected_date || `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-        
-        // Parse the detected date
-        const [year, month] = detectedDate.split('-').map((part: string) => parseInt(part, 10));
-        
-        // Format the date for display
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        const formattedMonth = monthNames[month - 1] || 'Unknown';
-        const formattedYear = year || currentYear;
-        
+
+        const fileSize = context.file.byteLength || metadata.fileSize;
         const formattedInfo = {
           filename: metadata.filename,
           url: metadata.url,
-          fileSize: metadata.fileSize ? `${Math.round(metadata.fileSize / 1024 / 1024 * 100) / 100} MB` : 'Unknown',
+          fileSize: fileSize ? `${Math.round(fileSize / 1024 / 1024 * 100) / 100} MB` : 'Unknown',
           lastModified: metadata.lastModified || 'Unknown',
           contentType: metadata.contentType || 'application/octet-stream',
-          schema: parquetData.schema,
-          totalRows: parquetData.totalRows,
-          data_as_of: detectedDate,
-          data_as_of_formatted: `${formattedMonth} ${formattedYear}`, // Add formatted date
+          schema: columnTypes,
+          totalRows: Number(context.metadata.num_rows),
+          ...(dateColumn ? { dateColumn } : {}),
+          // Only report an "as of" date the file actually contains; never the current month
+          ...(latestDate
+            ? formatAsOfValue(latestDate)
+            : { data_as_of: null, data_as_of_note: dateColumn ? `Could not read dates from column '${dateColumn}'.` : 'No date column found in this file.' }),
           viewableAt: dashboardUrl,
           timestamp: new Date().toISOString()
         };
