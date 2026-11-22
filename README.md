@@ -221,9 +221,12 @@ npm run smoke
 
 # Only tools whose name contains "flood", and print the start of each result
 npm run smoke -- flood --show
+
+# The same calls against the DEPLOYED server (mcp.techmavie.digital), e.g. after a deploy
+npm run smoke:live
 ```
 
-Run `npm run smoke` after upstream changes (data.gov.my, OpenDOSM, the GitHub metadata repo) to see which tools broke.
+Run `npm run smoke` after upstream changes (data.gov.my, OpenDOSM, the GitHub metadata repo) to see which tools broke, and `npm run smoke:live` after each deploy.
 
 ## Troubleshooting
 

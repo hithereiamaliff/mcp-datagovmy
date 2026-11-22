@@ -11,12 +11,14 @@
  *   npx tsx scripts/smoke-test.ts search       # only calls whose tool name contains "search"
  *   npx tsx scripts/smoke-test.ts --list       # list tools and their parameters
  *   npx tsx scripts/smoke-test.ts flood --show # also print the start of each result
+ *   npx tsx scripts/smoke-test.ts --url=https://mcp.techmavie.digital/datagovmy/mcp
+ *                                              # test a DEPLOYED server over HTTP instead
  *
  * Exit code is 1 if any call FAILs, so it can be used in CI if wanted.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import createStatelessServer from '../src/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // Each entry is one tool call. Tool names are without the "datagovmy_" prefix.
 // Arguments are realistic values an AI client would send. `expectError: true`
@@ -126,11 +128,21 @@ function classify(result: { content?: unknown; isError?: boolean }): { status: s
 
 async function main() {
   const args = process.argv.slice(2);
-  const server = createStatelessServer();
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
   const client = new Client({ name: 'smoke-test', version: '1.0.0' });
-  await client.connect(clientTransport);
+
+  const remoteUrl = args.find(a => a.startsWith('--url='))?.slice('--url='.length);
+  if (remoteUrl) {
+    // A deployed server, reached over Streamable HTTP exactly as MCP clients reach it
+    console.log(`Testing deployed server: ${remoteUrl}`);
+    await client.connect(new StreamableHTTPClientTransport(new URL(remoteUrl)));
+  } else {
+    // The code in this folder, started in-process (loaded only in this mode)
+    const { default: createStatelessServer } = await import('../src/index.js');
+    const server = createStatelessServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  }
 
   if (args.includes('--list')) {
     const { tools } = await client.listTools();

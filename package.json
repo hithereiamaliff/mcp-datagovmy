@@ -24,6 +24,7 @@
     "deploy": "npm run build && npx @smithery/cli@1.2.14 deploy",
     "test": "npm run typecheck && tsx --test test/*.test.ts",
     "smoke": "tsx scripts/smoke-test.ts",
+    "smoke:live": "tsx scripts/smoke-test.ts --url=https://mcp.techmavie.digital/datagovmy/mcp",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
