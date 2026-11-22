@@ -229,51 +229,77 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 // No external API keys needed — geocoding uses Nominatim (no credentials required)
 
-// Create MCP server
-const mcpServer = new McpServer({
-  name: 'Malaysia Open Data MCP Server',
-  version: '1.0.0',
-});
+/**
+ * Create an MCP server with every tool registered. Called once per request
+ * (see the /mcp handler below). Registering is cheap, and the tools' data
+ * caches live at module level, so they are still shared between requests.
+ */
+function createMcpServer(): McpServer {
+  const mcpServer = new McpServer({
+    name: 'Malaysia Open Data MCP Server',
+    version: '1.0.0',
+  });
 
-// Register all tool sets
-const toolSets: ToolRegistrationFn[] = [
-  registerDataCatalogueTools,
-  registerDosmTools,
-  registerWeatherTools,
-  registerDashboardTools,
-  registerUnifiedSearchTools,
-  registerParquetTools,
-  registerGtfsTools,
-  registerTransportTools,
-  registerFloodTools,
-];
+  // Register all tool sets
+  const toolSets: ToolRegistrationFn[] = [
+    registerDataCatalogueTools,
+    registerDosmTools,
+    registerWeatherTools,
+    registerDashboardTools,
+    registerUnifiedSearchTools,
+    registerParquetTools,
+    registerGtfsTools,
+    registerTransportTools,
+    registerFloodTools,
+  ];
 
-// Register all tools
-toolSets.forEach((toolSet) => toolSet(mcpServer));
+  // Register all tools
+  toolSets.forEach((toolSet) => toolSet(mcpServer));
 
-// Register hello tool for testing
-mcpServer.tool(
-  prefixToolName('hello'),
-  'A simple test tool to verify that the MCP server is working correctly',
-  {},
-  async () => {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            message: 'Hello from Malaysia Open Data MCP!',
-            timestamp: new Date().toISOString(),
-            transport: 'streamable-http',
-          }, null, 2),
-        },
-      ],
-    };
-  }
-);
+  // Register hello tool for testing
+  mcpServer.tool(
+    prefixToolName('hello'),
+    'A simple test tool to verify that the MCP server is working correctly',
+    {},
+    async () => {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Hello from Malaysia Open Data MCP!',
+              timestamp: new Date().toISOString(),
+              transport: 'streamable-http',
+            }, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  return mcpServer;
+}
+
+/**
+ * Hide the last part of an IP address before showing it on the public analytics
+ * endpoints (anyone can open /analytics). "203.0.113.45" -> "203.0.113.x";
+ * IPv6 keeps its first three groups. Full addresses stay in the saved analytics.
+ */
+function maskIp(ip: string): string {
+  const first = ip.split(',')[0].trim().replace(/^::ffff:/, '');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(first)) return first.replace(/\.\d{1,3}$/, '.x');
+  if (first.includes(':')) return `${first.split(':').slice(0, 3).join(':')}:x`;
+  return first; // e.g. "unknown"
+}
 
 // Create Express app
 const app = express();
+
+// nginx (on the host) forwards the real client address in X-Forwarded-For, but
+// Express ignores that header unless told to trust the proxy. Only private and
+// loopback addresses (nginx / the Docker gateway) are trusted, so a client that
+// connects directly can't fake its address.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
 // Middleware
 app.use(cors({
@@ -306,11 +332,15 @@ app.get('/analytics', (req: Request, res: Response) => {
     .sort(([, a], [, b]) => b - a)
     .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
   
-  // Sort clients by count
+  // Sort clients by count (IPs masked: this endpoint is public)
   const sortedClients = Object.entries(analytics.clientsByIp)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 20)
-    .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+    .reduce((acc, [ip, count]) => {
+      const masked = maskIp(ip);
+      acc[masked] = (acc[masked] ?? 0) + count;
+      return acc;
+    }, {} as Record<string, number>);
   
   // Get last 24 hours of hourly data
   const last24Hours = Object.entries(analytics.hourlyRequests)
@@ -338,7 +368,7 @@ app.get('/analytics', (req: Request, res: Response) => {
       byUserAgent: analytics.clientsByUserAgent,
     },
     hourlyRequests: last24Hours,
-    recentToolCalls: analytics.recentToolCalls.slice(0, 20),
+    recentToolCalls: analytics.recentToolCalls.slice(0, 20).map(call => ({ ...call, clientIp: maskIp(call.clientIp) })),
   });
 });
 
@@ -359,7 +389,7 @@ app.get('/analytics/tools', (req: Request, res: Response) => {
   res.json({
     totalToolCalls: analytics.totalToolCalls,
     tools: sortedTools,
-    recentCalls: analytics.recentToolCalls,
+    recentCalls: analytics.recentToolCalls.map(call => ({ ...call, clientIp: maskIp(call.clientIp) })),
   });
 });
 
@@ -842,13 +872,14 @@ app.get('/analytics/dashboard', (req: Request, res: Response) => {
   res.send(html);
 });
 
-// Create Streamable HTTP transport (stateless)
-const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: undefined, // Stateless transport
-});
-
-// MCP endpoint - handles POST (requests), GET (SSE), DELETE (session close)
-app.all('/mcp', async (req: Request, res: Response) => {
+// MCP endpoint (stateless Streamable HTTP).
+//
+// Every POST gets its OWN server + transport. A single shared stateless
+// transport routes each response by its JSON-RPC id only, and every client
+// numbers its requests from 0/1, so when two clients used the same id at the
+// same time one of them never received its answer (it hung until timeout).
+// The MCP SDK README warns about exactly these "request ID collisions".
+app.post('/mcp', async (req: Request, res: Response) => {
   try {
     // Track request
     trackRequest(req, '/mcp');
@@ -865,6 +896,16 @@ app.all('/mcp', async (req: Request, res: Response) => {
       mcpMethod: req.body?.method,
     });
 
+    const server = createMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // Stateless transport
+    });
+    res.on('close', () => {
+      transport.close();
+      server.close();
+    });
+
+    await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error('MCP request error:', error);
@@ -880,6 +921,19 @@ app.all('/mcp', async (req: Request, res: Response) => {
     }
   }
 });
+
+// A stateless server has no SSE stream to offer (GET) and no session to end
+// (DELETE). The MCP spec says to answer 405 Method Not Allowed in that case.
+const mcpMethodNotAllowed = (req: Request, res: Response) => {
+  trackRequest(req, '/mcp');
+  res.status(405).set('Allow', 'POST').json({
+    jsonrpc: '2.0',
+    error: { code: -32000, message: 'Method not allowed: this stateless MCP server only accepts POST.' },
+    id: null,
+  });
+};
+app.get('/mcp', mcpMethodNotAllowed);
+app.delete('/mcp', mcpMethodNotAllowed);
 
 // Root endpoint with server info
 app.get('/', (req: Request, res: Response) => {
@@ -901,30 +955,23 @@ app.get('/', (req: Request, res: Response) => {
   });
 });
 
-// Connect server to transport and start listening
-mcpServer.server.connect(transport)
-  .then(() => {
-    app.listen(PORT, HOST, () => {
-      console.log('='.repeat(60));
-      console.log('🇲🇾 Malaysia Open Data MCP Server (Streamable HTTP)');
-      console.log('='.repeat(60));
-      console.log(`📍 Server running on http://${HOST}:${PORT}`);
-      console.log(`📡 MCP endpoint: http://${HOST}:${PORT}/mcp`);
-      console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
-      console.log('='.repeat(60));
-      console.log('');
-      console.log('Test with MCP Inspector:');
-      console.log(`  npx @modelcontextprotocol/inspector`);
-      console.log(`  Select "Streamable HTTP" and enter: http://localhost:${PORT}/mcp`);
-      console.log('');
+// Start listening (each request creates its own MCP server, see /mcp above)
+app.listen(PORT, HOST, () => {
+  console.log('='.repeat(60));
+  console.log('🇲🇾 Malaysia Open Data MCP Server (Streamable HTTP)');
+  console.log('='.repeat(60));
+  console.log(`📍 Server running on http://${HOST}:${PORT}`);
+  console.log(`📡 MCP endpoint: http://${HOST}:${PORT}/mcp`);
+  console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
+  console.log('='.repeat(60));
+  console.log('');
+  console.log('Test with MCP Inspector:');
+  console.log(`  npx @modelcontextprotocol/inspector`);
+  console.log(`  Select "Streamable HTTP" and enter: http://localhost:${PORT}/mcp`);
+  console.log('');
 
-      // Pre-warm the GitHub index cache so first tool call is fast
-      warmCache();
-    });
-  })
-  .catch((error) => {
-    console.error('Failed to start MCP server:', error);
-    process.exit(1);
-  });
+  // Pre-warm the GitHub index cache so first tool call is fast
+  warmCache();
+});
 
 // Note: SIGTERM/SIGINT handlers are registered above (lines ~160-170) to save analytics on exit
