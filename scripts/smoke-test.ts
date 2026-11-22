@@ -74,6 +74,11 @@ const EXTRA_CALLS: typeof CALLS = [
   { tool: 'parse_gtfs_realtime', args: { provider: 'rapid kuantan' }, expectError: true },
   { tool: 'get_transit_arrivals', args: { provider: 'ktmb', stop_id: '19100', limit: 3 } },
   { tool: 'get_transit_routes', args: { provider: 'prasarana', category: 'rapid-bus-penang' } },
+  // Route filters accept the number on the bus ("401") as well as the internal route_id
+  { tool: 'get_transit_routes', args: { provider: 'rapid penang', route_id: '401' } },
+  { tool: 'get_transit_routes', args: { provider: 'rapid penang', route_id: '999' }, expectError: true },
+  { tool: 'get_transit_stops', args: { provider: 'rapid penang', route_id: '401', limit: 3 } },
+  { tool: 'get_transit_arrivals', args: { provider: 'rapid penang', stop_id: '12002116', route_id: '101', limit: 2 } },
   { tool: 'get_transit_stops', args: { provider: 'prasarana', category: 'rapid-rail-kl', route_id: 'KJ' } },
   { tool: 'find_nearest_transit_stops', args: { provider: 'prasarana', category: 'rapid-rail-kl', latitude: 3.1579, longitude: 101.7116, limit: 3 } },
   { tool: 'search_transit_stops_by_location', args: { provider: 'prasarana', category: 'rapid-bus-penang', location: 'Komtar', limit: 3, include_arrivals: true } },

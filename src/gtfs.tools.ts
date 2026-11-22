@@ -374,11 +374,47 @@ function activeServiceIds(gtfs: Record<string, any[]>, ymd: string, weekday: num
 }
 
 /**
+ * The route_ids that a route filter refers to.
+ * WHY: people use the number shown on the bus or train ("401", "KJ"), which GTFS calls
+ * route_short_name, but route_id can be an internal code. Rapid Penang's bus 401 is
+ * route_id "30000019", so filtering on route_id alone found nothing. An exact route_id
+ * match wins; otherwise the route number is matched. Both ignore upper/lower case.
+ */
+export function resolveRouteIds(gtfs: Record<string, any[]>, routeFilter: string): Set<string> {
+  const wanted = routeFilter.trim().toLowerCase();
+  const routes = gtfs.routes || [];
+  const byId = routes.filter((r: any) => String(r.route_id ?? '').toLowerCase() === wanted);
+  const matches = byId.length > 0
+    ? byId
+    : routes.filter((r: any) => String(r.route_short_name ?? '').toLowerCase() === wanted);
+  return new Set(matches.map((r: any) => String(r.route_id)));
+}
+
+/** Result for a route filter that matches no route, listing some real route numbers. */
+function unknownRouteResult(gtfs: Record<string, any[]>, routeFilter: string, feedLabel: string) {
+  const routes = gtfs.routes || [];
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          success: false,
+          message: `No route "${routeFilter}" in ${feedLabel}. Use a route number (route_short_name) or a route_id from get_transit_routes.`,
+          example_routes: routes.map((r: any) => r.route_short_name || r.route_id).filter(Boolean).slice(0, 15),
+          total_routes: routes.length,
+        }, null, 2),
+      },
+    ],
+  };
+}
+
+/**
  * Next scheduled arrivals at one stop, from now (Malaysia time) to the end of today's service.
  * Handles trips that run past midnight (a time like 25:10 on yesterday's service is 01:10 today)
  * and headway services in frequencies.txt (e.g. "every 5 minutes from 06:00 to 09:00").
+ * routeIds (from resolveRouteIds) limits the result to those routes.
  */
-function getScheduledArrivals(gtfs: Record<string, any[]>, stopId: string, limit: number, routeId?: string, at: Date = new Date()) {
+export function getScheduledArrivals(gtfs: Record<string, any[]>, stopId: string, limit: number, routeIds?: Set<string>, at: Date = new Date()) {
   const now = malaysiaClock(at);
   const yesterday = malaysiaClock(new Date(at.getTime() - 24 * 60 * 60 * 1000));
   const serviceDays = [
@@ -387,7 +423,7 @@ function getScheduledArrivals(gtfs: Record<string, any[]>, stopId: string, limit
   ];
   const tripsById = new Map<string, any>((gtfs.trips || []).map((t: any) => [t.trip_id, t]));
   const atStop = (gtfs.stop_times || []).filter(
-    (st: any) => st.stop_id === stopId && (!routeId || tripsById.get(st.trip_id)?.route_id === routeId)
+    (st: any) => st.stop_id === stopId && (!routeIds || routeIds.has(tripsById.get(st.trip_id)?.route_id))
   );
 
   // Headway-based trips: their stop_times are a template that repeats every headway_secs.
@@ -1032,7 +1068,7 @@ export function registerGtfsTools(server: McpServer) {
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
-      route_id: z.string().optional().describe('Specific route ID to filter by'),
+      route_id: z.string().optional().describe('Route number as shown on the bus or train (e.g. "401") or route_id, to show just that route'),
     },
     async ({ provider, category, route_id }) => {
       // Normalize provider and category (done before "try" so the error handler can show the real URL)
@@ -1065,11 +1101,15 @@ export function registerGtfsTools(server: McpServer) {
 
         // Extract routes data
         const routes = gtfsData.routes || [];
-        
-        // Filter by route_id if provided
-        const filteredRoutes = route_id
-          ? routes.filter((route: { route_id: string }) => route.route_id === route_id)
-          : routes;
+        const feedLabel = `${normalized.provider}${normalized.category ? `/${normalized.category}` : ''}`;
+
+        // Filter by route if given (the route number like "401", or the route_id)
+        let filteredRoutes = routes;
+        if (route_id) {
+          const routeIds = resolveRouteIds(gtfsData, route_id);
+          if (routeIds.size === 0) return unknownRouteResult(gtfsData, route_id, feedLabel);
+          filteredRoutes = routes.filter((route: { route_id: string }) => routeIds.has(route.route_id));
+        }
         
         // Add trips information to each route
         const routesWithTrips = filteredRoutes.map((route: { route_id: string }) => {
@@ -1134,7 +1174,7 @@ export function registerGtfsTools(server: McpServer) {
     {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
-      route_id: z.string().optional().describe('Filter stops by route ID (optional)'),
+      route_id: z.string().optional().describe('Only stops on this route: the route number shown on the bus or train (e.g. "401") or route_id (optional)'),
       stop_id: z.string().optional().describe('Specific stop ID to retrieve (optional)'),
       limit: z.number().int().min(1).max(500).optional().describe('Maximum number of stops to return (default 50, max 500)'),
       offset: z.number().int().min(0).optional().describe('Number of matching stops to skip, for paging (default 0)'),
@@ -1176,12 +1216,17 @@ export function registerGtfsTools(server: McpServer) {
           ? stops.filter((stop: { stop_id: string }) => stop.stop_id === stop_id)
           : stops;
 
-        // If route_id is provided, filter stops by route
+        // If a route is given, keep only stops on that route (route number like "401", or route_id)
         if (route_id) {
+          const routeIds = resolveRouteIds(gtfsData, route_id);
+          if (routeIds.size === 0) {
+            return unknownRouteResult(gtfsData, route_id, `${normalized.provider}${normalized.category ? `/${normalized.category}` : ''}`);
+          }
+
           // Get trips for the route (a Set makes the lookups below instant instead of scanning a list)
           const routeTrips = new Set(
             (gtfsData.trips || [])
-              .filter((trip: { route_id: string; trip_id: string }) => trip.route_id === route_id)
+              .filter((trip: { route_id: string; trip_id: string }) => routeIds.has(trip.route_id))
               .map((trip: { trip_id: string }) => trip.trip_id)
           );
 
@@ -1258,7 +1303,7 @@ export function registerGtfsTools(server: McpServer) {
       provider: z.string().describe('Provider name (e.g., "mybas-johor", "ktmb", "prasarana", or common names like "rapid penang")'),
       category: z.string().optional().describe('Category for Prasarana data (required only for prasarana provider)'),
       stop_id: z.string().describe('ID of the stop to get arrivals for'),
-      route_id: z.string().optional().describe('Optional: filter arrivals by route'),
+      route_id: z.string().optional().describe('Optional: only this route, as the route number shown on the bus or train (e.g. "401") or route_id'),
       limit: z.number().optional().describe('Maximum number of arrivals to return (default: 10)'),
     },
     async ({ provider, category, stop_id, route_id, limit = 10 }) => {
@@ -1310,8 +1355,17 @@ export function registerGtfsTools(server: McpServer) {
           };
         }
 
+        // Optional route filter (route number like "401", or route_id)
+        let routeIds: Set<string> | undefined;
+        if (route_id) {
+          routeIds = resolveRouteIds(gtfsStaticData, route_id);
+          if (routeIds.size === 0) {
+            return unknownRouteResult(gtfsStaticData, route_id, `${normalized.provider}${normalized.category ? `/${normalized.category}` : ''}`);
+          }
+        }
+
         // Next services at this stop according to the timetable (see getScheduledArrivals)
-        const arrivals = getScheduledArrivals(gtfsStaticData, stop_id, limit, route_id);
+        const arrivals = getScheduledArrivals(gtfsStaticData, stop_id, limit, routeIds);
         const hasHeadwayServices = arrivals.some(arrival => arrival.frequency_based);
 
         return {
