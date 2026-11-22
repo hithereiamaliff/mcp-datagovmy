@@ -57,6 +57,8 @@ Use these when the user is clearly asking for dashboard or visualization resourc
 
 These help with parquet-backed datasets and with mapping raw data files back to the dashboard that visualizes them.
 
+Parquet URLs must be `https://` on an official `*.gov.my` host (e.g. `storage.data.gov.my`, `storage.dosm.gov.my`), so the public server can't be used to fetch arbitrary addresses. `get_parquet_info` reads only the file footer (row count, column types, date range). Very large files (over 2 million rows) are refused for full-file filters and "latest" mode, with a message explaining why.
+
 ### `parse_parquet_file`
 
 Parses and displays data from a Parquet file URL. Supports three output modes via the `output_mode` parameter:
@@ -135,10 +137,10 @@ Example (filter by column value + select specific columns):
 
 ## Weather and Flood Tools
 
-- `get_weather_forecast`
+- `get_weather_forecast`: next `days` days for each matching location. Common English names are mapped to the Malay names MET Malaysia uses (e.g. "Penang" -> "Pulau Pinang").
 - `get_weather_warnings`
-- `get_earthquake_warnings`
-- `get_flood_warnings`
+- `get_earthquake_warnings`: newest first, filtered to `magnitude` and above
+- `get_flood_warnings`: by default only stations above normal level (ALERT, WARNING, DANGER). Optional `include_normal` and `limit` (default 100). Every response includes `newest_reading`, plus `stale_data_warning` when the upstream feed has stopped updating (on 22 Nov 2026 its newest reading was from Feb 2024).
 
 ## Transport and GTFS Tools
 
@@ -151,13 +153,15 @@ Example (filter by column value + select specific columns):
 
 ### GTFS parsing and lookup tools
 
-- `parse_gtfs_static`
-- `parse_gtfs_realtime`
+- `parse_gtfs_static`: returns a summary (row counts, columns, 3 sample rows per file). Pass `file` (e.g. `"stops"`) with `limit` (default 50, max 500) and `offset` to page through one file.
+- `parse_gtfs_realtime`: live vehicle positions. Optional `route_id`, and `limit` (default 50, max 500).
 - `get_transit_routes`
-- `get_transit_stops`
-- `get_transit_arrivals`
+- `get_transit_stops`: optional `limit` (default 50, max 500) and `offset`
+- `get_transit_arrivals`: next **scheduled** arrivals from the published timetable, in Malaysia time. data.gov.my publishes no realtime trip-update feed, so these are not live predictions.
 - `search_transit_stops_by_location`
 - `find_nearest_transit_stops`
+
+Realtime vehicle positions are published for ktmb, mybas-johor and Prasarana buses (rapid-bus-kl, rapid-bus-mrtfeeder, rapid-bus-penang), but not for rapid-rail-kl.
 
 ### Supported GTFS providers
 
@@ -170,10 +174,11 @@ Direct providers:
 Common names are also normalized. Examples:
 
 - `rapid penang` -> `prasarana` + `rapid-bus-penang`
-- `rapid kuantan` -> `prasarana` + `rapid-bus-kuantan`
 - `rapid rail` -> `prasarana` + `rapid-rail-kl`
 - `mybas johor` -> `mybas-johor`
 - `ktm` -> `ktmb`
+
+An explicit `category` always wins over a common name's default (e.g. `prasarana` + `rapid-bus-penang` returns Penang buses). Rapid Kuantan (`rapid-bus-kuantan`) is no longer published by data.gov.my; asking for it returns a clear message.
 
 ### `search_transit_stops_by_location`
 
@@ -198,7 +203,7 @@ Arguments:
 - `country`: optional country code, defaults to `my`
 - `limit`: optional result limit, defaults to `5`
 - `max_distance`: optional distance in km, defaults to `5`
-- `include_arrivals`: optional, defaults to `true`
+- `include_arrivals`: optional, defaults to `true` (scheduled timetable times, not live)
 - `arrivals_limit`: optional arrivals per stop, defaults to `3`
 
 ### `find_nearest_transit_stops`

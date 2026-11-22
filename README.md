@@ -199,10 +199,31 @@ src/
   firebase-analytics.ts
   utils/
 
+scripts/
+  smoke-test.ts      # calls every tool against the live APIs
+
+test/
+  search.test.ts     # unit tests (no network)
+
 deploy/
   DEPLOYMENT.md
   nginx-mcp.conf
 ```
+
+## Testing
+
+```bash
+# Type check + unit tests (no network needed)
+npm test
+
+# Call every tool once against the live upstream APIs; prints PASS / EMPTY / FAIL per call
+npm run smoke
+
+# Only tools whose name contains "flood", and print the start of each result
+npm run smoke -- flood --show
+```
+
+Run `npm run smoke` after upstream changes (data.gov.my, OpenDOSM, the GitHub metadata repo) to see which tools broke.
 
 ## Troubleshooting
 
@@ -213,9 +234,10 @@ docker compose logs -f
 # Local health check
 curl http://localhost:8080/health
 
-# Hosted MCP tool list
+# Hosted MCP tool list (the Accept header is required by Streamable HTTP)
 curl -X POST https://mcp.techmavie.digital/datagovmy/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
