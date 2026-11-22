@@ -32,7 +32,7 @@ ENV HOST=0.0.0.0
 # Health check. Uses Node's built-in fetch because node:22-slim does not
 # include wget or curl (a wget-based check can never pass in this image).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # Start the HTTP server
 CMD ["node", "dist/http-server.js"]

@@ -18,6 +18,10 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            # Stop at the first failing command, so a failed step (e.g. git pull blocked
+            # by local changes on the server) fails the run instead of reporting success
+            # while the old code keeps running.
+            set -e
             cd /opt/mcp-servers/datagovmy
             git pull origin main
             

@@ -22,7 +22,7 @@ services:
       - ./.credentials:/app/.credentials:ro
     healthcheck:
       # node:22-slim has no wget/curl, so use Node's built-in fetch
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
